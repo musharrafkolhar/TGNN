@@ -7,8 +7,13 @@ Humans: read `README.md` first. This file is the working agreement for AI-assist
 
 BE final-year project: detect coordinated financial fraud by classifying transactions with a **Temporal Graph
 Network (TGN)** on the IBM AML synthetic dataset, explain alerts (attention + motif detection), and present them in a
-Streamlit dashboard. Models are compared against XGBoost baselines and a static GNN. The research questions are
-RQ1 to RQ4 in `README.md`.
+Streamlit dashboard. Models are compared against XGBoost baselines and a static GNN. The active delivery is the v1 prototype; final research questions are deferred in `README.md`.
+
+## Active scope: v1 prototype
+
+Use README.md prototype milestones P0-P4 and ARCHITECTURE.md section 0. Preserve the ML safeguards, but do not require final-research models, ablations, multi-seed runs, GNNExplainer, replay controls or Docker before completing the prototype. One real TGN and one XGBoost baseline are required. No fake scores or results.
+
+The default demo reads saved outputs. Attention is optional when unavailable and must never be fabricated. Motifs are descriptive context, not proof of wrongdoing or causal explanations.
 
 ## Read before coding
 
@@ -50,9 +55,9 @@ These prevent the most likely silent bugs. Violating them invalidates results.
 2. **No future leakage.** Features, scalers, encoders and class weights are computed from **train** data only.
    Any windowed feature for an edge at time `t` uses events strictly before `t`.
 3. **TGN order of operations:** predict, compute loss, then update memory and neighbour loader. No shuffling.
-   Reset memory at the start of each training epoch; do **not** reset between train, val and test evaluation.
+   Reset memory at the start of each training epoch. After loading the selected checkpoint for held-out evaluation, reset and rebuild historical state using that checkpoint, then continue across train, val and test boundaries without further resets. Handle equal timestamps without same-time leakage.
 4. **Labels never enter model inputs**, messages, memory or features.
-5. **Imbalance:** report PR-AUC as the primary metric. Do not report accuracy. Do not claim a result from ROC-AUC alone.
+5. **Imbalance:** report average precision (AP) as the prototype's primary metric; distinguish it from trapezoidal PR-AUC. Do not report accuracy. Do not claim a result from ROC-AUC alone.
 6. **Every result comes from a saved run folder** (`runs/<id>/` with config, seed, predictions, metrics). Never hardcode
    or invent numbers in code, docs, notebooks or README tables. Leave `TBD` until a real run exists.
 7. **Set seeds** via `utils/seed.py`. Record library versions in the run config.
@@ -85,7 +90,7 @@ These prevent the most likely silent bugs. Violating them invalidates results.
   fan-out) so tests run in seconds on CPU.
 - Required test types: split ordering, leakage, memory-order, determinism, prediction schema, motif detection,
   explanation JSON schema (`ARCHITECTURE.md` section 14).
-- Run `make test` and `make lint` before declaring work done. If you could not run them, say so.
+- For implementation changes, run `make test` and `make lint` (or the documented Python equivalents) before declaring work done. Documentation-only scope changes require consistency and diff checks, not nonexistent test targets. If required checks could not run, say so.
 
 ## Workflow for a task
 
@@ -98,8 +103,7 @@ These prevent the most likely silent bugs. Violating them invalidates results.
 
 ## Scope discipline
 
-Follow the priority tiers in `README.md` (Must / Should / Stretch). Finish Must items before touching Should or
-Stretch. Do not add features, pages, models or datasets that are not in scope. Suggest them instead.
+Follow the required-v1 and deferred-final scope in `README.md`. Finish prototype milestones before adding deferred items. Do not add features, pages, models or datasets that are not in scope. Suggest them instead.
 
 Out of scope: real bank data, devices/merchants/customers as node types, geographic features, online learning,
 production real-time serving.
@@ -120,3 +124,4 @@ production real-time serving.
 - [ ] No new unapproved dependencies; no committed data, checkpoints or secrets
 - [ ] Docs updated where behaviour or contracts changed
 - [ ] Any reported metric is traceable to a run folder
+

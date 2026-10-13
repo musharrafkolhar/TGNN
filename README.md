@@ -1,278 +1,221 @@
-# TGNN-Fraud: Temporal Graph Neural Networks for Coordinated Financial Fraud Detection
+# TGNN-Fraud: Coordinated Financial Fraud Detection
 
-> **BE Final Year Project** · JSPM's Jayawantrao Sawant College of Engineering, Hadapsar, Pune
-> Affiliated to Savitribai Phule Pune University
-> **Guide:** Prof. Ashwini Patil
+> **BE final-year project prototype (v1)** · JSPM's Jayawantrao Sawant College of Engineering, Hadapsar, Pune · SPPU
+>
+> **Guide:** Prof. Ashwini Patil  
 > **Team:** Musharraf Kolhar · Prajwal Vitkar · Priyanshu Pande · Aaryan Karandikar
+>
+> **Current status: planning / pre-implementation.** The repository contains design documents and a placeholder Python file. The modules, commands and folder layout below are planned, not working features. No trained model or measured results are available yet.
 
-> **Status: planning / pre-implementation.** Sections marked **TBD** are filled in as the project is built.
-> Do not treat any number in this file as a result until the "Results" section says so.
+## 1. Prototype objective
 
----
+Build a working path from timestamped account-to-account transactions to TGN risk scores, saved alerts and an investigator dashboard. An evaluator should be able to select an alert and inspect the transaction, its historical graph context and detected patterns.
 
-## 1. Overview
+The first prototype uses IBM's **synthetic anti-money-laundering dataset**. It classifies transactions labelled as laundering; it does not establish criminal intent or cover every kind of financial fraud. Accounts are nodes and transactions are timestamped directed edges.
 
-Financial fraud and money laundering are rarely one-off events. Rings of accounts move money together through
-chains, cycles, fan-outs and bursts. A model that scores each transaction in isolation cannot see this, because it
-ignores **who transacts with whom, and when**.
+TGN learns from account history and recent neighbours. Pattern detection adds descriptive context such as cycles or fan-outs. A pattern is not proof of fraud, and attention weights are not a verified causal explanation of a model decision.
 
-This project models transactions as a **continuous-time dynamic graph** (accounts are nodes, time-stamped transactions
-are edges) and uses a **Temporal Graph Network (TGN)** to classify each transaction as suspicious or normal.
-Every alert comes with an **explanation**: the temporal subgraph, the attention weights, and the detected laundering
-pattern (for example "4-account circular flow within 6 hours") that drove the score. An **investigator dashboard**
-(Streamlit) lets an analyst browse alerts and inspect them.
+## 2. v1 scope and completion criteria
 
-## 2. Research questions
+| Component | Required for v1 | Complete when |
+|---|---|---|
+| Environment | Python 3.10/3.11, PyTorch/PyG, core data and dashboard dependencies | A documented setup can import dependencies and run smoke checks |
+| Data | Verified HI-Small input; reproducible contiguous chronological subset | Clean edges, node index, split manifest and data validation report exist |
+| Baseline | One XGBoost model using transaction features | Saved validation/test predictions and measured metrics exist |
+| Main model | One TGN with an edge-classification head | Training completes; checkpoint and held-out predictions are saved |
+| Evaluation | Average precision (reported as AP), precision, recall and illicit-class F1 | Both models use identical splits; threshold is selected on validation and frozen for test |
+| Alert context | Historical subgraph, basic cycle and fan-out detection; attention where supported | A selected alert displays actual graph facts; missing motifs/attention are shown honestly |
+| Dashboard | Alert queue and alert detail in Streamlit | Selecting an alert opens its matching transaction, score and graph |
+| Demo | Saved model outputs on a documented test slice | Demo launches locally with clear labels and no fabricated scores |
+| Verification | Split, leakage, model-state ordering, schema and basic end-to-end checks | Checks pass and setup can be repeated by another member |
 
-| ID | Question | How we answer it |
-|----|----------|------------------|
-| RQ1 | Does a TGN detect illicit transactions better than per-transaction and graph-feature baselines? | PR-AUC, minority-class F1, recall@k vs. XGBoost baselines |
-| RQ2 | Does temporal modelling help beyond a static GNN? | Ablations: static GNN, TGN without memory, TGN without time encoding |
-| RQ3 | Which laundering typologies benefit most from temporal graph modelling? | Per-typology recall (cycle, fan-in, fan-out, scatter-gather, ...) |
-| RQ4 | Do explanations point at the true laundering accounts and transactions? | Overlap between explained subgraph and ground-truth pattern edges |
+**v1 does not need to outperform XGBoost to be a working prototype.** Report the observed result, including poor performance. A rule-only dashboard or mock scores do not satisfy the TGN requirement.
 
-## 3. Scope
+### Deferred final-version work
 
-### In scope
-- Offline training and evaluation on a **public dataset** (IBM AML synthetic transactions, see section 5).
-- Accounts as nodes; bank, currency and payment format as features.
-- Transaction-level (edge) classification with a TGN.
-- Baselines (XGBoost, XGBoost + graph features, static GNN) and TGN ablations.
-- Explainability: attention weights, GNNExplainer (if feasible), motif detection.
-- Simulated streaming by **chronological replay** of the test period.
-- Streamlit investigator dashboard.
+- XGBoost with causal historical graph features.
+- Static GNN, no-memory/no-time ablations and multiple seeds.
+- Full HI-Small experiments, LI-Small generalisation and detailed typology analysis.
+- GNNExplainer, SHAP and quantitative explanation evaluation.
+- Live inference replay controls, additional dashboard pages and Docker packaging.
+- TGAT, another dataset or FastAPI only if separately agreed.
 
-### Out of scope
-- Real bank data and production-grade real-time serving.
-- Devices, merchants, customers and payment instruments as node types. No public dataset provides them.
-- Geographic or "location" features. They do not exist in the chosen dataset.
-- Online learning / continual updating of the model.
+These remain research goals, not prerequisites for the first demo. No devices, merchants, geographic features, real bank integration, online learning or production serving are included in v1.
 
-### Priority tiers (cut line if time runs short)
+## 3. Implementation status
 
-| Tier | Items |
-|------|-------|
-| **Must** | Preprocessing, XGBoost baselines (raw + graph features), TGN with edge-classification head, evaluation suite, attention + motif explanations, dashboard (alert queue + alert detail) |
-| **Should** | Static GNN baseline, TGN ablations, GNNExplainer, replay simulator page, LI-Small generalisation run, Docker image |
-| **Stretch** | TGAT comparison, Elliptic Bitcoin dataset check, FastAPI inference endpoint |
+| Feature | Status | Evidence |
+|---|---|---|
+| Scope and architecture documentation | Documented | README.md, ARCHITECTURE.md |
+| Python entry point | Placeholder | tgnn/main.py contains a comment only |
+| Environment and package skeleton | Planned | Not implemented |
+| Data validation and preprocessing | Planned | Not implemented |
+| XGBoost baseline | Planned | No saved run |
+| TGN training and scoring | Planned | No checkpoint |
+| Metrics and alert context | Planned | No predictions or explanations |
+| Dashboard and demo | Planned | No runnable app |
 
-## 4. Tech stack
+Update a row to **implemented** when code exists and **verified** only after its acceptance check passes. Record the verifying command and commit/run ID.
 
-| Layer | Choice |
-|-------|--------|
-| Language | Python 3.10 / 3.11 |
-| Deep learning | PyTorch |
-| Graph / temporal GNN | PyTorch Geometric (TGN: `TGNMemory`, `LastNeighborLoader`, `TransformerConv`) |
-| Baselines | scikit-learn, XGBoost |
+## 4. Dataset and subset policy
+
+Primary source: [IBM Transactions for Anti-Money Laundering (AML), Kaggle](https://www.kaggle.com/datasets/ealtman2019/ibm-transactions-for-anti-money-laundering-aml).
+
+Download HI-Small transactions and its accompanying patterns file into `data/raw/`. **Exact filenames, schema, row counts, time span and class balance must be recorded after inspecting the downloaded files.** The schema in ARCHITECTURE.md is an assumption until verified. Do not store Kaggle credentials in Git.
+
+Prototype subset procedure:
+
+1. Sort transactions by timestamp and stable original row order.
+2. Choose one contiguous time interval for a manageable pilot run. Record its boundaries and selection rule in config; do not choose it based on test model performance.
+3. Keep all normal and illicit events in that interval. Do not randomly sample or oversample the transaction stream.
+4. Split chronologically approximately 60/20/20, keeping equal timestamps together.
+5. Report total events, unique accounts, positive counts and prevalence separately for train, validation and test. If a split has no positives, report the pilot as unsuitable for minority-class evaluation and revise the documented interval before modelling.
+6. Save the source file checksum, subset boundaries, split boundaries and seed/config with the run.
+
+The subset is for feasibility testing; results describe that subset, not the full dataset or real banks. If the patterns file is unavailable or cannot be matched, basic graph-pattern displays can still work, but ground-truth typology metrics remain unavailable.
+
+## 5. Stack
+
+| Layer | v1 choice |
+|---|---|
+| Model | Python, PyTorch, PyTorch Geometric TGN components |
+| Baseline and metrics | XGBoost, scikit-learn |
 | Data | Pandas, NumPy, Parquet |
-| Graph analysis | NetworkX |
-| Explainability | Attention weights, `torch_geometric.explain.GNNExplainer`, NetworkX motif detection, SHAP (XGBoost only) |
-| Dashboard | Streamlit, PyVis (graphs), Plotly (charts) |
-| Alert storage | SQLite |
-| Experiment tracking | TensorBoard (or Weights & Biases) |
-| Packaging | Docker (dashboard / inference demo), Git + GitHub |
-| Training compute | Google Colab / Kaggle GPU |
+| Graph context | NetworkX |
+| Dashboard | Streamlit, PyVis, Plotly |
+| Alerts | SQLite |
+| Configuration and checks | YAML configuration, pytest, ruff |
 
-**Deliberately not used:** Neo4j, PostgreSQL, FastAPI (stretch only). See `ARCHITECTURE.md`, decision log.
+Pin a tested environment once verified. GPU training can run on Colab/Kaggle; the first dashboard reads saved outputs on CPU. Neo4j, PostgreSQL, Kafka, LLMs and an API are unnecessary for v1.
 
-## 5. Dataset
+## 6. Planned interfaces and layout
 
-**Primary:** IBM *Transactions for Anti-Money Laundering (AML)*, the synthetic AMLworld data from
-Altman et al., *Realistic Synthetic Financial Transactions for Anti-Money Laundering Models*, NeurIPS 2023
-(Datasets & Benchmarks). Use the **HI-Small** version first (about 5M transactions, roughly 0.1% illicit; verify after
-download), then **LI-Small** for generalisation. Do not use the Medium/Large versions; they are too heavy for free GPUs.
+The actual repository currently has three design documents and `tgnn/main.py`. The following are **target paths to create**, not existing modules:
 
-Why this dataset: it has timestamps, account-to-account edges, illicit labels, and a patterns file that labels each
-laundering attempt by typology (cycle, fan-in, fan-out, scatter-gather, etc.), which lets us answer RQ3 and RQ4.
+| Planned path | Responsibility |
+|---|---|
+| `configs/prototype.yaml` | Subset, paths, split, model and demo settings |
+| `src/tgnn_fraud/data/` | Validation, preprocessing, splits, encoders, event stream |
+| `src/tgnn_fraud/models/` | XGBoost, TGN and edge classifier |
+| `src/tgnn_fraud/training/` | Training and saved run outputs |
+| `src/tgnn_fraud/evaluation/` | File-based evaluation and threshold selection |
+| `src/tgnn_fraud/explain/` | Historical context, attention and basic motifs |
+| `src/tgnn_fraud/serving/` | Checkpoint scorer, alert export and SQLite |
+| `src/tgnn_fraud/utils/` | Config, seeding and logging |
+| `app/` | Streamlit alert queue and detail |
+| `tests/` | Tiny-data checks |
+| `data/`, `runs/`, `reports/` | Generated data, checkpoints and metrics; not committed |
 
-**Download (Kaggle):** search Kaggle for "IBM Transactions for Anti-Money Laundering (AML)". Place the files in
-`data/raw/`. Verify the exact file names and columns after download; `ARCHITECTURE.md` section 4 documents the
-assumed schema.
+Shared outputs:
 
-> The dataset is **synthetic**. Say so in the report. It limits how far conclusions transfer to real banks.
+- Data: `edges.parquet`, `node_index.parquet`, `splits.json`, `preprocess_report.json`.
+- Models: `predictions.parquet`, checkpoint/model file, config and seed.
+- Evaluation: `metrics.json`, selected threshold and PR curve.
+- Alert export: `alerts.db` with explanation/context JSON.
 
-## 6. Repository structure
+Detailed schemas are in ARCHITECTURE.md. All models use the same prediction schema.
 
-```
-tgnn-fraud-detection/
-├── README.md
-├── ARCHITECTURE.md          # system design, module contracts, decision log
-├── AGENTS.md                # instructions for AI coding assistants
-├── CLAUDE.md                # imports AGENTS.md (Claude Code)
-├── pyproject.toml
-├── requirements.txt
-├── Makefile
-├── Dockerfile
-├── configs/                 # YAML configs (data, baselines, tgn, explain)
-├── data/                    # gitignored: raw/, interim/, processed/, demo/
-├── src/tgnn_fraud/
-│   ├── data/                # download check, preprocess, splits, features
-│   ├── models/              # baselines, static GNN, TGN, edge classifier
-│   ├── training/            # training scripts, losses
-│   ├── evaluation/          # metrics, typology recall, explanation eval
-│   ├── explain/             # attention, GNNExplainer, motifs, report
-│   ├── serving/             # stream replay, scorer, alert store
-│   └── utils/               # config, seeding, logging
-├── app/                     # Streamlit dashboard (multipage)
-├── notebooks/               # EDA, Colab training notebook
-├── tests/
-├── runs/                    # gitignored: one folder per experiment
-├── reports/                 # figures and tables for the thesis
-└── docs/images/             # screenshots
+## 7. Setup and commands
+
+### Available now: clone the prototype branch
+
+```powershell
+git clone --branch v1 https://github.com/musharrafkolhar/TGNN.git
+cd TGNN
 ```
 
-## 7. Installation
+### Planned Windows environment setup
 
-> Commands below describe the **target** workflow. They start working as each module is implemented.
+These steps require `requirements.txt` and package metadata to be implemented first:
 
-### 7.1 Local (CPU is fine for development on a small subset)
-
-```bash
-git clone <REPO_URL> tgnn-fraud-detection
-cd tgnn-fraud-detection
-python -m venv .venv && source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
-# 1) Install PyTorch for your platform first: https://pytorch.org/get-started/locally/
-# 2) Then:
-pip install -r requirements.txt
-pip install -e .
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -e .
 ```
 
-If a PyG import fails with a message mentioning `torch-scatter` or `pyg-lib`, install the wheels matching your
-exact PyTorch/CUDA version from the PyG installation guide. Pin the working versions in `requirements.txt`
-once the team's environment is stable.
+Install a compatible PyTorch/PyG build using their official installation guides and record the verified versions. Do not assume CUDA is available.
 
-### 7.2 Google Colab / Kaggle (training)
+### Planned pipeline (not yet runnable)
 
-Open `notebooks/colab_train.ipynb`. It clones the repo, installs dependencies, mounts storage for data and
-checkpoints, and runs `make train-tgn`.
+| Step | Planned Make target | Planned Python equivalent for Windows without Make |
+|---|---|---|
+| Prepare data | `make data` | `python -m tgnn_fraud.data.preprocess --config configs/prototype.yaml` |
+| Baseline | `make train-baselines` | `python -m tgnn_fraud.training.train_baselines --config configs/prototype.yaml` |
+| TGN | `make train-tgn` | `python -m tgnn_fraud.training.train_tgn --config configs/prototype.yaml` |
+| Evaluate | `make evaluate RUN=<run_id>` | `python -m tgnn_fraud.evaluation.run_eval --run runs/<run_id>` |
+| Export context and alerts | `make explain RUN=<run_id>` | `python -m tgnn_fraud.explain.run_explain --run runs/<run_id>` |
+| Dashboard | `make app` | `python -m streamlit run app/Home.py` |
+| Tests | `make test` | `python -m pytest` |
+| Lint | `make lint` | `python -m ruff check .` and `python -m ruff format --check .` |
 
-### 7.3 Docker (dashboard / demo only)
+Implement and verify CLI arguments and Make targets together. Use the venv Python executable if the environment is not activated. A future demo bundle must document where to obtain its data and saved outputs.
 
-```bash
-docker build -t tgnn-fraud .
-docker run -p 8501:8501 tgnn-fraud      # then open http://localhost:8501
-```
+## 8. ML correctness and evaluation
 
-The image runs the dashboard on CPU using a small **demo bundle** (`data/demo/`: a slice of the test period,
-a trained checkpoint, precomputed alerts and explanations). It does not train models.
+- No random splits. Equal-timestamp events stay in one split.
+- Fit scalers, categorical encoders and loss class weights on train only.
+- Labels, attempt IDs and typology annotations are never model features or memory messages.
+- Predict before updating memory/neighbour state. No shuffling.
+- For final held-out evaluation, load the selected checkpoint, reset state and rebuild historical state chronologically using that checkpoint. Continue from train into validation into test without further resets or parameter updates.
+- Define equal-timestamp handling so events at time `t` cannot see other events at `t` if the policy is strictly-before history.
+- Use one recorded seed for v1. Multiple seeds belong to the final comparison.
+- Report **average precision (AP)** using scikit-learn average_precision_score and name it explicitly; it is not identical to trapezoidal PR-AUC.
+- Select a decision threshold on validation, freeze it for test, and save it with metrics. ROC-AUC is optional; accuracy is not a useful headline.
+- A sigmoid model score is not automatically a calibrated fraud probability.
 
-## 8. Usage
+## 9. Prototype demonstration
 
-All steps are driven by YAML configs in `configs/` and wrapped by `make` targets.
+1. Launch the dashboard and show the dataset subset, run ID and evaluation metrics.
+2. Browse the saved alert queue ranked by the selected model's score.
+3. Select an alert to view its timestamp, accounts, amount, score and threshold.
+4. Inspect a bounded historical subgraph and any detected cycle/fan-out.
+5. View ground truth only in clearly labelled evaluation mode.
 
-```bash
-make data              # validate raw files, build data/processed/edges.parquet + splits.json
-make train-baselines   # XGBoost (raw) and XGBoost (+ graph features), static GNN
-make train-tgn         # TGN + edge classifier -> runs/<run_id>/
-make evaluate RUN=<run_id>   # metrics, PR curves, per-typology recall -> reports/
-make explain  RUN=<run_id>   # explanations for top-K alerts -> alerts.db
-make demo-bundle RUN=<run_id>   # package small demo slice for Docker
-make app               # streamlit run app/Home.py
-make test              # pytest
-```
+The first demo displays **precomputed model outputs**. It does not perform live inference or retrain when opened. Attention is included only if extracted from the matching prediction-time state. Display “no supported motif found” when appropriate; never invent an explanation. Graph context uses no future events.
 
-Every model writes the same `predictions.parquet` schema (see `ARCHITECTURE.md` section 7), so evaluation,
-explanation and the dashboard work with any model.
+## 10. Prototype build order
 
-## 9. Evaluation protocol
+| Milestone | Deliverable | Acceptance |
+|---|---|---|
+| P0 | Package skeleton, config, environment, tiny test data | Imports and smoke checks pass |
+| P1 | Subset pipeline, splits, XGBoost and metrics | Reproducible data plus a measured baseline run |
+| P2 | TGN training and checkpoint evaluation | Genuine held-out scores; ordering/leakage checks pass |
+| P3 | Alert export, historical context and basic motifs | Correct transaction-to-alert joins and context |
+| P4 | Queue/detail dashboard and local demo | Another teammate can launch and inspect saved alerts |
 
-- **Chronological split** (60% train / 20% val / 20% test by timestamp). Never a random split.
-- Class imbalance handled with weighted loss (or focal loss); scalers fit on train only.
-- Primary metric: **PR-AUC**. Also: F1 on the illicit class, precision@k / recall@k (alert budget),
-  per-typology recall, ROC-AUC (secondary; misleading under heavy imbalance), inference latency per batch.
-- Decision threshold chosen on the validation set, then frozen for test.
-- Every reported number comes from a saved run folder with its config and seed. At least 3 seeds for the final
-  comparison.
+UI scaffolding with labelled fixtures can proceed in parallel. Connect it to real outputs after P2/P3; final research comparisons do not block the prototype.
 
-## 10. Results
+## 11. Four-member ownership (assign names before implementation)
 
-**TBD.** Filled in after experiments. Leave this table empty until real runs exist.
+| Workstream | Owner | Boundary |
+|---|---|---|
+| Data and baseline | Unassigned | Data artifacts, subset manifest and XGBoost |
+| TGN and scorer | Unassigned | Model training, checkpoint, memory lifecycle and scorer |
+| Evaluation and context | Unassigned | Shared metrics, thresholding, motifs, attention and context JSON |
+| Dashboard and integration | Unassigned | SQLite storage, alert export integration and Streamlit |
 
-### 10.1 Model comparison (HI-Small, test split)
+Do not infer ownership from the order of team names. Agree schemas first, use separate branches and small pull requests into `v1` for prototype integration. The model owner controls scoring state; the dashboard owner consumes saved outputs.
 
-| Model | PR-AUC | F1 (illicit) | Recall@0.5% | Precision@0.5% |
-|-------|--------|--------------|-------------|----------------|
-| XGBoost (raw tx features) | TBD | TBD | TBD | TBD |
-| XGBoost (+ graph features) | TBD | TBD | TBD | TBD |
-| Static GNN | TBD | TBD | TBD | TBD |
-| TGN, no memory | TBD | TBD | TBD | TBD |
-| TGN, no time encoding | TBD | TBD | TBD | TBD |
-| **TGN (full)** | TBD | TBD | TBD | TBD |
+## 12. Results and limitations
 
-### 10.2 Recall by laundering typology
+**No results yet.** Add only measured values linked to a saved run.
 
-| Typology | XGBoost (+ graph) | TGN |
-|----------|-------------------|-----|
-| Cycle | TBD | TBD |
-| Fan-out | TBD | TBD |
-| Fan-in | TBD | TBD |
-| Scatter-gather | TBD | TBD |
-| Other | TBD | TBD |
+| Model | Subset/run ID | AP | Precision | Recall | F1 (illicit) |
+|---|---|---|---|---|---|
+| XGBoost | TBD | TBD | TBD | TBD | TBD |
+| TGN | TBD | TBD | TBD | TBD | TBD |
 
-### 10.3 Explanation quality (RQ4)
+Synthetic data, a small pilot subset, one seed and descriptive graph context limit the conclusions. Suspicious patterns may occur in legitimate transfers. The prototype assists inspection; it does not verify wrongdoing.
 
-| Method | Edge precision@k vs. ground truth | Edge recall@k |
-|--------|-----------------------------------|---------------|
-| Attention | TBD | TBD |
-| GNNExplainer | TBD | TBD |
-| Attention + motif detection | TBD | TBD |
+## 13. Final research direction and references
 
-## 11. Screenshots
+The final version will investigate improvements over graph-feature and static-GNN baselines, temporal ablations, per-pattern detection and explanation quality. These questions are deferred until the prototype works.
 
-**TBD.** Add after the dashboard exists. Planned images in `docs/images/`:
+Core references to complete with verified bibliographic links:
+- Rossi et al., Temporal Graph Networks for Deep Learning on Dynamic Graphs (2020).
+- Altman et al., Realistic Synthetic Financial Transactions for Anti-Money Laundering Models (NeurIPS 2023).
+- Temporal explanation references from the literature review require verification before use.
 
-| File | Content |
-|------|---------|
-| `overview.png` | Overview page: model comparison and metrics |
-| `alert_queue.png` | Ranked alert queue with filters |
-| `alert_detail.png` | Subgraph view, timeline, explanation text |
-| `replay.png` | Stream replay simulator |
+License: **TBD**; the team must choose a code license and respect the dataset's separate terms.
 
-## 12. Roadmap
-
-- [ ] **M0**: Repo, environment, CI-free sanity checks, tiny synthetic dataset for tests
-- [ ] **M1**: Preprocessing, chronological split, XGBoost baselines, evaluation suite
-- [ ] **M2**: TGN with edge classifier trained on HI-Small; first PR-AUC
-- [ ] **M3**: Static GNN + TGN ablations; multi-seed runs
-- [ ] **M4**: Explainability (attention, motifs, GNNExplainer feasibility); explanation evaluation
-- [ ] **M5**: Replay + alert store + Streamlit dashboard
-- [ ] **M6**: Final experiments, Docker demo bundle, report and presentation
-
-Adjust timing to your college schedule. Acceptance criteria per milestone are in `ARCHITECTURE.md` section 16.
-
-## 13. Team and ownership
-
-| Workstream | Owner | Main modules |
-|------------|-------|--------------|
-| Data and baselines | TBD | `data/`, `models/baselines.py`, `evaluation/` |
-| TGN model | TBD | `models/tgn.py`, `training/` |
-| Explainability | TBD | `explain/`, `evaluation/explanation_eval.py` |
-| Dashboard and packaging | TBD | `app/`, `serving/`, `Dockerfile` |
-
-## 14. Known limitations
-
-- Synthetic data; real-world transfer is untested.
-- Streaming is simulated by replay, not a production pipeline.
-- Explainability for TGN is approximate. GNNExplainer is not designed for memory-based temporal models, so
-  attention + motif detection is the primary explanation method.
-- Accounts are the only node type.
-
-## 15. References
-
-1. TMR-GGNN: Credit Card Fraud Detection Based on Time-Aware Multi-Relational Guided Graph Neural Network (2026)
-2. Self-Adaptive Graph Analytics for Real-Time Fraud Detection in Transaction Networks (2026)
-3. Multi-Temporal Partitioned Graph Attention Networks for Financial Fraud Detection (2025)
-4. Catching Scam Tokens With Temporal Graph Learning in Decentralized Finance (2026)
-5. Rossi et al., *Temporal Graph Networks for Deep Learning on Dynamic Graphs*, 2020 (TGN)
-6. Xu et al., *Inductive Representation Learning on Temporal Graphs*, ICLR 2020 (TGAT)
-7. Altman et al., *Realistic Synthetic Financial Transactions for Anti-Money Laundering Models*, NeurIPS 2023
-8. Ying et al., *GNNExplainer: Generating Explanations for Graph Neural Networks*, NeurIPS 2019
-9. Xia et al., *Explaining Temporal Graph Models through an Explorer-Navigator Framework*, ICLR 2023 (T-GNNExplainer)
-10. Chen and Ying, *TempME: Towards the Explainability of Temporal Graph Neural Networks via Motif Discovery*, NeurIPS 2023
-
-> Add authors and links for references 1 to 4 from the review presentation.
-
-## 16. License
-
-**TBD.** Choose before making the repository public.

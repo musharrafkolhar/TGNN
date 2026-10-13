@@ -10,6 +10,33 @@ Contents: 1 Purpose · 2 System overview · 3 Repository layout · 4 Data layer 
 
 ---
 
+## 0. Active delivery scope: v1 prototype
+
+README.md defines the active prototype scope. This document retains detailed data/model contracts and future research design; optional final-version modules below are not v1 requirements.
+
+**Required now:** a verified contiguous HI-Small subset, one XGBoost transaction-feature baseline, one TGN, AP/precision/recall/F1, bounded historical context with basic cycle/fan-out detection, saved alerts, and Streamlit queue/detail pages.
+
+**Deferred:** graph-feature baseline, static GNN, ablations, multi-seed/full-data runs, typology/explanation benchmarks, GNNExplainer/SHAP, inference replay controls, extra pages, Docker and APIs.
+
+Prototype demo mode reads saved predictions and explanations. Labels and pattern ground truth are used only for evaluation, never scoring. If a pattern file is missing/unmatched, do not block basic motif displays or invent typology results.
+
+### Prototype data and model safeguards
+- Record a reproducible contiguous subset, source checksum, split boundaries and per-split positive counts. Preserve all events in the interval.
+- Keep equal timestamps together at split boundaries. With strictly-before history, score all events at a timestamp before inserting any of them into history; chunking must not expose same-time events.
+- Exclude label, attempt_id and typology from inputs/messages. An ID index can include unseen nodes for addressing only, not future-derived attributes.
+- On loading the chosen checkpoint for held-out evaluation, reset memory/neighbour state and warm history with that checkpoint; continue across evaluation split boundaries without resets or parameter updates.
+- Use average_precision_score and label the metric **AP**. Existing PR-AUC research wording must specify its integration convention before final reporting.
+- Freeze a numeric validation-selected threshold for v1. Fixed-threshold alerts and top-k ranking metrics are distinct policies.
+- Historical explanation edges precede the target timestamp. Display the target edge separately so it can complete a motif, and label motif facts as descriptive context.
+- Attention must be captured/reconstructed at prediction time with matching checkpoint/history. A motif or attention weight alone does not establish causal attribution.
+- Bound context by configurable time window, hops and maximum edges; full-graph cycle enumeration is not a prototype requirement.
+- Required checks are split/timestamp ordering, future and label leakage, memory ordering, prediction schema, motifs and a tiny end-to-end demo.
+
+### Prototype integration boundaries
+The data owner produces canonical files; model owners produce the common prediction schema; evaluation/context consumes these outputs; the dashboard reads saved files and SQLite only. TGN owner owns scorer/memory lifecycle. Dashboard owner owns storage and integration. Names remain unassigned until the team agrees.
+
+---
+
 ## 1. Purpose
 
 Detect **coordinated** financial fraud (chains, cycles, fan-in/out, scatter-gather, bursts) by classifying each
@@ -272,7 +299,7 @@ tb/                    # TensorBoard logs
 |--------|------|-------|
 | `edge_id` | int64 | joins to `edges.parquet` |
 | `split` | category | train / val / test |
-| `score` | float32 | probability of illicit |
+| `score` | float32 | model risk score; not assumed calibrated |
 | `label` | int8 | copied for convenience |
 | `model` | category | b1, b2, b3, tgn, tgn_no_memory, ... |
 | `run_id` | string | |
@@ -462,17 +489,22 @@ Run with `pytest`. Add a test with every bug fix.
 
 ## 16. Build order and acceptance criteria
 
-| Milestone | Deliverable | Done when |
-|-----------|-------------|-----------|
-| **M0** Setup | Repo skeleton, environment, synthetic test data, CI-free `make test` | `make test` passes on a clean clone |
-| **M1** Data + baselines | `edges.parquet`, `splits.json`, B1, B2, `run_eval.py` | B1 and B2 produce `predictions.parquet` and a metrics table; split and leakage tests pass |
-| **M2** TGN | `tgn.py`, `train_tgn.py`, edge classifier | TGN beats a trivial baseline on val PR-AUC; run folder complete; memory-order test passes |
-| **M3** Comparison | Static GNN, ablations A1 to A3, 3 seeds | README tables 10.1 and 10.2 filled with real numbers |
-| **M4** Explainability | `attention.py`, `motifs.py`, `report.py`, (GNNExplainer decision) | Explanation JSON generated for top-K alerts; table 10.3 filled |
-| **M5** Dashboard | `replay.py`, `alert_store.py`, Streamlit pages | Alert queue and detail page work end-to-end on demo bundle; screenshots captured |
-| **M6** Finalise | Docker demo, report, slides | `docker run` shows dashboard on a fresh machine; all README TBDs resolved |
+### v1 prototype (active)
 
-Order matters: do not start M4 before M2 produces a working checkpoint, and do not polish the dashboard before M3.
+| Milestone | Deliverable | Done when |
+|---|---|---|
+| P0 | Skeleton, environment, config and tiny test data | Dependency imports and smoke checks pass |
+| P1 | Verified subset, causal splits, XGBoost and evaluation | Saved baseline predictions and measured metrics; data checks pass |
+| P2 | TGN, checkpoint and held-out scoring | Training runs and produces genuine test scores; state-order checks pass |
+| P3 | Context, basic motifs and saved alerts | Correct joins and bounded historical graphs, with honest missing-context states |
+| P4 | Streamlit queue/detail and local demo | Another member can launch the demo and inspect saved outputs |
+
+UI fixtures may be developed in parallel if labelled. Connect real outputs after P2/P3. Prototype completion does not require superior TGN performance, final comparisons or Docker.
+
+### Final research version (deferred)
+After v1: add the graph-feature baseline, static GNN, temporal ablations, multiple seeds, broader data runs, typology/explanation benchmarks and final packaging. Answer the README's deferred research questions before claiming temporal superiority or explanation faithfulness.
+
+---
 
 ## 17. Decision log
 
@@ -496,3 +528,4 @@ Order matters: do not start M4 before M2 produces a working checkpoint, and do n
 3. Window size Δ for the explanation subgraph and motif search (the dataset covers only days, so hours are likely).
 4. Exact match rate of patterns-file transactions to edges after preprocessing.
 5. Whether LI-Small is run as a generalisation check or deferred.
+
