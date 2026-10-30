@@ -1,0 +1,34 @@
+seed: 42
+data:
+  input: data/raw/HI-Small_Trans.csv # verify the actual downloaded filename first
+  output: data/ibm_pilot_processed
+  source_kind: ibm_aml
+  subset_start: '2022-09-02T00:00:00Z' # skip the unusually dense dataset opening period
+  subset_end: null
+  max_events: 200000
+  csv_chunk_rows: 25000
+  fractions: [0.6, 0.2, 0.2]
+runs_dir: runs
+baseline:
+  n_estimators: 100
+  max_depth: 4
+  learning_rate: 0.08
+tgn:
+  epochs: 3
+  memory_dim: 32
+  time_dim: 16
+  embedding_dim: 32
+  heads: 2
+  neighbor_size: 10
+  hidden_dim: 64
+  learning_rate: 0.001
+  device: cpu
+  max_events_per_chunk: 256
+explain:
+  top_k: 40
+  window_seconds: 21600
+  hops: 2
+  max_edges: 100
+  max_cycle_length: 6
+  fanout_min_neighbors: 3
+  max_motifs: 10

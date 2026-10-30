@@ -1,531 +1,66 @@
-# ARCHITECTURE
+# TGNN v1 architecture and contracts
 
-System design for **TGNN-Fraud**. This document is the source of truth for module boundaries, data contracts and
-build order. If code and this document disagree, fix one of them in the same pull request.
+This document describes the implemented prototype. Research extensions are deferred in README.md. Team ownership and repository integration require human agreement.
 
-Contents: 1 Purpose · 2 System overview · 3 Repository layout · 4 Data layer · 5 Feature engineering ·
-6 Models · 7 Training and prediction contracts · 8 Explainability · 9 Serving and alert store ·
-10 Dashboard · 11 Configuration and reproducibility · 12 Compute and deployment · 13 Module dependency rules ·
-14 Testing · 15 Risks · 16 Build order and acceptance criteria · 17 Decision log · 18 Open questions
+## File-based pipeline
 
----
+`IBM CSV → preprocess → canonical data/features → XGBoost and TGN runs → evaluation → historical context/SQLite → Streamlit`
 
-## 0. Active delivery scope: v1 prototype
+Stages communicate through saved artifacts. Evaluation imports no model code. The app imports no training/model code and reads saved JSON/SQLite only. Utilities import no project modules. The scorer owns TGN history/checkpoint state.
 
-README.md defines the active prototype scope. This document retains detailed data/model contracts and future research design; optional final-version modules below are not v1 requirements.
+## Canonical data
 
-**Required now:** a verified contiguous HI-Small subset, one XGBoost transaction-feature baseline, one TGN, AP/precision/recall/F1, bounded historical context with basic cycle/fan-out detection, saved alerts, and Streamlit queue/detail pages.
+`data/ibm_pilot_processed/edges.parquet` contains:
 
-**Deferred:** graph-feature baseline, static GNN, ablations, multi-seed/full-data runs, typology/explanation benchmarks, GNNExplainer/SHAP, inference replay controls, extra pages, Docker and APIs.
+- `edge_id`: contiguous int64 row address in canonical chronological order, starting at zero; unique within the source/subset identity.
+- `original_row`: original zero-based CSV data-row ID, retained through chunking/subsetting/sorting.
+- `timestamp`: UTC calendar timestamp. `calendar_seconds`: Unix seconds. `ts`: integer seconds relative to the full source dataset start, retained separately in the manifest.
+- `src`, `dst`: integer node IDs. Node identity is the exact `(bank, account)` string pair, including leading zeros. `node_index.parquet` saves that mapping. Global node IDs are addressing only; they are not learned features.
+- Paid/received amounts, from/to bank, paid/received currencies and payment format.
+- `split`: train/val/test. `label`: binary synthetic laundering annotation. `attempt_id` and `typology` are nullable evaluation-only placeholders.
 
-Prototype demo mode reads saved predictions and explanations. Labels and pattern ground truth are used only for evaluation, never scoring. If a pattern file is missing/unmatched, do not block basic motif displays or invent typology results.
+The complete input is inspected in configurable bounded CSV chunks. Input need not be sorted. Candidate retention keeps the earliest `max_events+1` rows, then canonicalization excludes the whole timestamp group at the cutoff. All events within the resulting interval are retained. Stable sorting uses timestamp then original row ID. Start is inclusive, end exclusive. Source checksum, schema, parser dtypes, missingness, timestamp range, counts/prevalence and settings are saved in `preprocess_report.json`; selected interval/split boundaries are also in `splits.json`.
 
-### Prototype data and model safeguards
-- Record a reproducible contiguous subset, source checksum, split boundaries and per-split positive counts. Preserve all events in the interval.
-- Keep equal timestamps together at split boundaries. With strictly-before history, score all events at a timestamp before inserting any of them into history; chunking must not expose same-time events.
-- Exclude label, attempt_id and typology from inputs/messages. An ID index can include unseen nodes for addressing only, not future-derived attributes.
-- On loading the chosen checkpoint for held-out evaluation, reset memory/neighbour state and warm history with that checkpoint; continue across evaluation split boundaries without resets or parameter updates.
-- Use average_precision_score and label the metric **AP**. Existing PR-AUC research wording must specify its integration convention before final reporting.
-- Freeze a numeric validation-selected threshold for v1. Fixed-threshold alerts and top-k ranking metrics are distinct policies.
-- Historical explanation edges precede the target timestamp. Display the target edge separately so it can complete a motif, and label motif facts as descriptive context.
-- Attention must be captured/reconstructed at prediction time with matching checkpoint/history. A motif or attention weight alone does not establish causal attribution.
-- Bound context by configurable time window, hops and maximum edges; full-graph cycle enumeration is not a prototype requirement.
-- Required checks are split/timestamp ordering, future and label leakage, memory ordering, prediction schema, motifs and a tiny end-to-end demo.
+Approximately 60/20/20 chronological splits preserve ties. Preprocessing requires nonempty splits with both classes, failing with a clear instruction to revise the documented subset. Metric evaluation separately reports a no-positive test set explicitly; validation needs both classes to choose an F1 cutoff.
 
-### Prototype integration boundaries
-The data owner produces canonical files; model owners produce the common prediction schema; evaluation/context consumes these outputs; the dashboard reads saved files and SQLite only. TGN owner owns scorer/memory lifecycle. Dashboard owner owns storage and integration. Names remain unassigned until the team agrees.
+## Features
 
----
+`features.npy` is aligned with canonical rows, float32 and label-free. `transformers.pkl` is a trusted-local scikit-learn transformer fitted only on train rows.
 
-## 1. Purpose
+Allowlist: log paid/received amounts, same-bank indicator, same-currency indicator, calendar time-of-day sine/cosine, and categorical from/to bank, currencies and payment format. OneHotEncoder caps each categorical field at 32 encoded columns, groups train-infrequent categories and maps unseen categories to zeros. No account IDs, labels, attempts, typologies or future aggregates enter features. Capped encodings keep the dense pilot feature matrix bounded on a laptop.
 
-Detect **coordinated** financial fraud (chains, cycles, fan-in/out, scatter-gather, bursts) by classifying each
-transaction with a Temporal Graph Network, explain each alert, and present alerts to an investigator.
+## Models and temporal state
 
-Success is defined by the research questions in `README.md` section 2 (RQ1 to RQ4). Anything that does not serve
-one of them is a stretch item.
+XGBoost uses current transaction features with train-derived class weight. Parameters and seed are in YAML.
 
-## 2. System overview
+TGN uses PyG TGNMemory, IdentityMessage, LastAggregator, LastNeighborLoader, TransformerConv with time-encoded historical edges, and an MLP transaction classification head receiving source embedding, destination embedding and current features. The objective is weighted binary transaction classification, not link prediction.
 
-```mermaid
-flowchart LR
-    A["Raw CSV + patterns file<br/>(data/raw)"] --> B["Preprocess<br/>canonical edges.parquet"]
-    B --> C["Chronological split<br/>splits.json"]
-    C --> D1["Baselines<br/>XGBoost raw / + graph feats"]
-    C --> D2["Static GNN"]
-    C --> D3["TGN + edge classifier"]
-    D1 --> E["predictions.parquet<br/>(one per model run)"]
-    D2 --> E
-    D3 --> E
-    E --> F["Evaluation<br/>PR-AUC, recall@k, typology recall"]
-    D3 --> G["Explain<br/>attention + GNNExplainer + motifs"]
-    E --> G
-    G --> H[("alerts.db<br/>SQLite")]
-    E --> H
-    F --> I["Streamlit dashboard"]
-    H --> I
-    J["Stream replay<br/>(test period, chronological)"] --> H
-    D3 --> J
-```
+At each timestamp: score every chunk, compute training gradients, then make one optimizer update and observe the complete timestamp group. No same-time event enters another's score. Reset memory/neighbours each training epoch; detach recurrent memory after observation. Use validation AP to save the best checkpoint. Reload it, reset history and replay train → validation → test with fixed weights; no resets at split boundaries and no parameter updates in held-out scoring. Replay requires canonical IDs and finite aligned features.
 
-Design principles:
+`checkpoint_best.pt` is a trusted-local PyTorch checkpoint. `environment.json`, `seed.txt`, resolved `config.yaml` and `training_history.json` record the run. XGBoost saves `model.json`. Every run has `data_manifest.json` including canonical edges SHA-256.
 
-1. **File-based interfaces between stages.** Each stage reads files and writes files. Stages do not import each
-   other's internals, so teammates can work in parallel.
-2. **One prediction schema for every model.** Evaluation, explanation and the dashboard are model-agnostic.
-3. **Time is a first-class constraint.** No operation may use information from the future of the event being scored.
-4. **Small by default.** Training runs on a free GPU; the demo runs on CPU.
+## Predictions, metrics and comparisons
 
-## 3. Repository layout
+Every model writes `predictions.parquet` with `edge_id`, `split` (val/test), `score` (finite [0,1]), `label`, `model` (xgboost/tgn), `run_id`. The same edge in different runs/models is a distinct result. Risk scores are not assumed calibrated.
 
-```
-src/tgnn_fraud/
-├── data/
-│   ├── download.py        # verifies raw files exist; prints Kaggle instructions (no credentials stored)
-│   ├── preprocess.py      # raw CSV -> edges.parquet, node_index.parquet, patterns matched to edges
-│   ├── splits.py          # chronological split -> splits.json
-│   ├── features.py        # static edge features + causal windowed graph features
-│   └── event_stream.py    # TemporalData / batch iterator over sorted events (no shuffling)
-├── models/
-│   ├── baselines.py       # XGBoost wrappers (raw, +graph features)
-│   ├── static_gnn.py      # GraphSAGE/GAT edge classifier on time-window snapshots
-│   ├── tgn.py             # TGNMemory + GraphAttentionEmbedding + LastNeighborLoader glue
-│   └── edge_classifier.py # MLP head: [z_src, z_dst, edge_feats] -> logit
-├── training/
-│   ├── train_baselines.py
-│   ├── train_tgn.py
-│   ├── train_static_gnn.py
-│   └── losses.py          # weighted BCE, focal loss
-├── evaluation/
-│   ├── metrics.py         # PR-AUC, F1, precision/recall@k, threshold selection
-│   ├── typology.py        # per-typology recall using patterns file
-│   ├── explanation_eval.py# overlap of explained edges with ground-truth pattern edges
-│   └── run_eval.py        # reads predictions.parquet -> metrics.json, figures
-├── explain/
-│   ├── attention.py       # extract TransformerConv attention for a target edge
-│   ├── gnn_explainer.py   # GNNExplainer on frozen-memory subgraph (feasibility-gated)
-│   ├── motifs.py          # NetworkX: cycle, fan-in/out, chain, scatter-gather, burst
-│   ├── report.py          # merge into explanation JSON
-│   └── run_explain.py     # top-K alerts -> alerts.db
-├── serving/
-│   ├── replay.py          # chronological replay of test events in micro-batches
-│   ├── scorer.py          # load checkpoint, maintain memory, score batches
-│   ├── alert_store.py     # SQLite read/write
-│   └── build_demo_bundle.py
-└── utils/
-    ├── config.py          # YAML loading + validation (dataclasses or pydantic)
-    ├── seed.py            # global seeding
-    └── logging.py
+Prediction validation rejects duplicate/invalid IDs, blank identities, mixed runs/models, bad splits/labels and invalid scores. Comparison requires identical canonical dataset hashes and identical held-out IDs/splits/labels. Each model selects its own maximum-validation-F1 threshold with highest-cutoff tie breaking. Freeze it for test. Metrics include AP, precision, recall, illicit-class F1, counts/prevalence and TN/FP/FN/TP. Zero division is zero; no-positive test AP is null with a reason. AP is scikit-learn average precision, not trapezoidal PR-AUC. Save `metrics.json` and self-contained `pr_curve.html`; comparison JSON contains actual results and verified set identity.
 
-app/
-├── Home.py                # overview + model comparison
-└── pages/
-    ├── 1_Alert_Queue.py
-    ├── 2_Alert_Detail.py
-    ├── 3_Replay_Simulator.py
-    └── 4_Model_Comparison.py
-```
+## Context and attention
 
-## 4. Data layer
+Each alert has JSON in `runs/RUN/contexts/EDGE.json` and in SQLite. Fields include run/model/target identity, score, threshold, window, history policy, context limits/truncation, target separately, nodes, historical edges, motif evidence, attention status, factual summary and interpretation.
 
-### 4.1 Raw input (assumed; verify after download)
+History satisfies `target.ts - window <= ts < target.ts`. Bounded hop expansion starts at both endpoints and keeps the most recent `max_edges`. A cycle requires a directed historical path from target destination to target source with increasing times; the target closes it. Fan-out counts distinct non-self destinations. Supporting edge IDs and time span are retained. The motif detector rejects nonhistorical input.
 
-IBM AMLworld, HI-Small: a transactions CSV and a patterns text file. Expected transaction columns:
+TGN replay captures attention for the same checkpoint/history used for scoring. Records identify target and actual historical edge IDs; endpoint embedding attention is averaged across heads/directions where applicable. It is not complete causal attribution of the classifier. Missing attention is explicitly unavailable; empty motif lists are valid.
 
-`Timestamp, From Bank, Account, To Bank, Account, Amount Received, Receiving Currency, Amount Paid, Payment Currency, Payment Format, Is Laundering`
+## SQLite and dashboard
 
-Note the two columns both named `Account`; pandas will rename the second to `Account.1`. `preprocess.py` must rename
-columns explicitly and assert the expected set. If the real file differs, update this section and `preprocess.py`
-together.
+`alerts` stores run/model/edge, dataset-relative time, nodes, amount/currency, saved score/threshold, evaluation-only label and investigator status. Uniqueness is `(run_id, model, edge_id)`. `explanations` joins context JSON to alert ID. Upserts preserve review status. Allowed states are new/reviewed/dismissed; none automatically confirms fraud.
 
-The patterns file lists each laundering attempt (with its typology) followed by the transactions that belong to it.
+Export verifies canonical dataset hash and prediction ID/split/label joins, then saves the top configured threshold-passing test alerts. A demo bundle includes SQLite, metrics, predictions, PR curve, config, environment, seed and provenance. The dashboard works without checkpoints/raw CSV. Queue/detail share `app/Home.py`, with score/time/node/status filters, evaluation-mode label display, calendar timestamps, directed Plotly graph and evidence tables. Missing/incomplete outputs produce setup guidance.
 
-### 4.2 Canonical edge table: `data/processed/edges.parquet`
+## Verification and deferred work
 
-Sorted by `(ts, original_row)`; `edge_id` is the position after sorting and is **stable**.
+Tests exercise ordering, chunk/source preservation, train-only transforms, metric known answers, frozen thresholds, schema/comparison/joins, context causality, motifs, attention timing, actual TGN memory learning, checkpoint replay, deterministic training, SQLite idempotency and Streamlit views. Run pytest and Ruff checks from README.md. TGN skips when its dependency is absent; skips cannot count as TGN verification. Actual execution status/results live in VERIFICATION.md and saved run artifacts.
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `edge_id` | int64 | 0..N-1 after sort |
-| `ts` | int64 | seconds since dataset start |
-| `src`, `dst` | int32 | node indices from `node_index.parquet` |
-| `from_bank`, `to_bank` | category/int | |
-| `amount_paid`, `amount_received` | float64 | raw values |
-| `currency_paid`, `currency_received` | category | |
-| `payment_format` | category | |
-| `label` | int8 | 1 = laundering (`Is Laundering`) |
-| `attempt_id` | int32 (nullable) | laundering attempt from patterns file; null for normal edges |
-| `typology` | category (nullable) | cycle, fan-in, fan-out, scatter-gather, ... |
-
-Matching pattern transactions to edges requires joining on (timestamp, accounts, amounts). If a pattern row cannot
-be matched uniquely, log it and keep a count in `data/processed/preprocess_report.json`. Typology-based metrics
-only use matched edges.
-
-### 4.3 Node index: `data/processed/node_index.parquet`
-
-`node_id` (int32), `bank`, `account` (original identifiers). A node is the unique `(bank, account)` pair.
-
-### 4.4 Split: `data/processed/splits.json`
-
-```json
-{ "train_end_ts": 0, "val_end_ts": 0,
-  "train_edges": [0, 0], "val_edges": [0, 0], "test_edges": [0, 0],
-  "fractions": [0.6, 0.2, 0.2] }
-```
-
-Split by **timestamp quantile** on the sorted edge table. Store edge-id ranges. All later code reads these ranges;
-nobody re-splits.
-
-### 4.5 Rules
-
-- Fit encoders and scalers on **train edges only**; save them to `data/processed/transformers.pkl`.
-- Unseen categories at val/test map to an "unknown" bucket.
-- Nodes that first appear in val/test are valid: TGN memory starts at zero for them (this is the inductive case).
-- `data/` is gitignored. Only `data/demo/` may be shared, and only if small.
-
-## 5. Feature engineering
-
-### 5.1 Static edge features (used by every model)
-
-`log1p(amount_paid)`, `log1p(amount_received)`, same-currency flag, same-bank flag, payment format (one-hot),
-currency (one-hot or embedding index), time-of-day and day-of-week encodings if informative.
-
-### 5.2 Causal windowed graph features (baseline B2 only)
-
-For each edge at time `t`, features about `src` and `dst` computed from **events strictly before `t`**:
-
-- in/out transaction count and amount sums over windows (1h, 6h, 24h; configurable)
-- number of unique counterparties
-- time since the account's last transaction
-- in/out amount ratio
-
-Implementation must be causal: use a single pass over the time-sorted stream with per-account state, or
-`groupby().rolling(..., closed="left")`. Add a unit test that perturbs future edges and asserts features at `t`
-do not change (section 14).
-
-This baseline exists so TGN is compared against a model that also sees graph context. Without it, RQ1 is unfair.
-
-## 6. Models
-
-### 6.1 Baselines
-
-| ID | Model | Inputs |
-|----|-------|--------|
-| B1 | XGBoost | static edge features |
-| B2 | XGBoost | static edge features + causal windowed graph features |
-| B3 | Static GNN (GraphSAGE or GAT) | rolling time-window snapshots; edge classification head; **no** time encoding, **no** memory |
-
-### 6.2 TGN (main model)
-
-Built on PyG's TGN components, adapted from link prediction to **edge classification**.
-
-| Component | Role | Starting config (tune later) |
-|-----------|------|------------------------------|
-| `TGNMemory` | per-node memory updated by events | memory_dim 100, time_dim 100, `IdentityMessage`, `LastAggregator` |
-| `LastNeighborLoader` | most recent neighbours per node | size 10 |
-| `GraphAttentionEmbedding` (`TransformerConv`) | embeddings from memory + neighbour events + time encoding | out_channels 100, heads 2 |
-| `EdgeClassifier` | MLP on `[z_src, z_dst, edge_feats]` | hidden 128, dropout 0.2 |
-| Loss | weighted BCE (`pos_weight` from train class ratio) or focal | |
-| Optimiser | Adam | lr 1e-4 to 1e-3, tune |
-
-Raw message for memory = static edge features (never the label).
-
-#### Training step (per batch, chronological, no shuffling)
-
-```mermaid
-sequenceDiagram
-    participant L as Batch loader (time-ordered)
-    participant N as NeighborLoader
-    participant M as TGNMemory
-    participant E as Embedding (attention)
-    participant H as Edge classifier
-    L->>N: batch src, dst
-    N->>M: n_id (batch nodes + recent neighbours)
-    M-->>E: memory state BEFORE this batch
-    E->>H: z_src, z_dst
-    H-->>L: logits -> loss on batch labels
-    L->>L: backward + optimiser step
-    L->>M: update_state(src, dst, t, msg)  (AFTER loss)
-    L->>N: insert(src, dst)
-    L->>M: detach()
-```
-
-Rules that prevent leakage and silent bugs:
-
-1. **Predict first, update memory after.** A batch's events influence only later batches.
-2. **No shuffling.** Batches are consecutive slices of the sorted edge table.
-3. **Reset memory and neighbour loader at the start of each training epoch.**
-4. **Do not reset between train, val and test evaluation.** Evaluate val continuing from the end of train state,
-   then test continuing from the end of val state (no gradients, but memory keeps updating).
-5. **Labels never enter messages, features or memory.**
-6. Batch size is a trade-off: larger is faster but coarser memory updates. Start at 200, try up to 1024.
-
-### 6.3 Ablations (RQ2)
-
-| ID | Variant | What it tests |
-|----|---------|---------------|
-| A0 | Full TGN | reference |
-| A1 | No memory (embedding module over neighbours only) | value of long-term node state |
-| A2 | No time encoding | value of continuous-time information |
-| A3 | Neighbour size sweep (5, 10, 20) | context size |
-| A4 | TGAT-style (stretch) | alternative temporal model |
-
-Each ablation is a config flag, not a code fork.
-
-## 7. Training and prediction contracts
-
-### 7.1 Class imbalance
-
-Illicit edges are roughly 0.1% of data. Use `pos_weight` or focal loss. Do not subsample edges in a way that breaks
-the chronological stream. Report PR-AUC as the primary metric.
-
-### 7.2 Run folder
-
-Every training run creates `runs/<YYYYmmdd_HHMM>_<name>/`:
-
-```
-config.yaml            # resolved config (copy)
-seed.txt
-checkpoint_best.pt     # chosen by val PR-AUC (GNNs only)
-model.json             # XGBoost models
-predictions.parquet    # see 7.3
-metrics.json           # produced by evaluation
-tb/                    # TensorBoard logs
-```
-
-### 7.3 `predictions.parquet` (the universal interface)
-
-| Column | Type | Notes |
-|--------|------|-------|
-| `edge_id` | int64 | joins to `edges.parquet` |
-| `split` | category | train / val / test |
-| `score` | float32 | model risk score; not assumed calibrated |
-| `label` | int8 | copied for convenience |
-| `model` | category | b1, b2, b3, tgn, tgn_no_memory, ... |
-| `run_id` | string | |
-
-Predictions are saved for val and test (train optional).
-
-### 7.4 Thresholding and metrics
-
-- Threshold options: (a) max F1 on val; (b) top-k% alert budget (default 0.5%). Freeze on val, apply to test.
-- Metrics: PR-AUC, ROC-AUC, F1, precision, recall (illicit class), precision@k and recall@k, per-typology recall,
-  inference time per batch.
-- Final comparison: at least 3 seeds, report mean and standard deviation.
-
-## 8. Explainability
-
-Goal: for any alert, answer "why was this flagged?" in terms an investigator understands.
-
-```mermaid
-flowchart TD
-    A["Flagged edge e = (u, v, t)"] --> B["Collect temporal subgraph:<br/>recent neighbours of u and v<br/>within window Δ before t"]
-    B --> C["Attention weights<br/>(TransformerConv)"]
-    B --> D["GNNExplainer on frozen-memory subgraph<br/>(if feasible)"]
-    B --> E["NetworkX motif detection<br/>cycle / fan-in / fan-out / chain / scatter-gather / burst"]
-    C --> F["Explanation JSON"]
-    D --> F
-    E --> F
-    F --> G["alerts.db + dashboard"]
-```
-
-### 8.1 Methods
-
-| Method | Role | Status |
-|--------|------|--------|
-| Attention weights | **Primary.** Edge importance in the embedding step | Must |
-| Motif detection (NetworkX) | **Primary.** Names the pattern: e.g. simple cycles up to length 6, fan-in/out above degree threshold, scatter-gather, bursts by z-score of tx counts | Must |
-| GNNExplainer | Secondary. Wrap embedding module + head with memory state frozen as node features | Should, feasibility-gated (section 18) |
-| SHAP | Baseline B1/B2 only, for feature importance comparison | Should |
-
-### 8.2 Explanation JSON (stored in `alerts.db`)
-
-```json
-{
-  "edge_id": 123456,
-  "score": 0.93,
-  "threshold": 0.71,
-  "window_seconds": 21600,
-  "subgraph": {
-    "nodes": [{"node_id": 1, "label": "bank:account"}],
-    "edges": [{"edge_id": 1, "src": 1, "dst": 2, "ts": 1000, "amount": 5400.0,
-               "attn": 0.31, "gnnexp": null}]
-  },
-  "motifs": [{"type": "cycle", "node_ids": [1, 2, 3, 4], "edge_ids": [1, 5, 9, 12], "span_seconds": 18000}],
-  "summary": "4-account circular flow completed within 5 hours; amounts nearly preserved around the cycle."
-}
-```
-
-`summary` is generated from templates filled with motif and attention facts. Do **not** use an LLM to generate
-explanations of model behaviour; explanations must come from the model and graph.
-
-### 8.3 Explanation evaluation (RQ4)
-
-Using the patterns file, each laundering attempt has a ground-truth edge set. For flagged true positives, compare the
-top-k explained edges with the attempt's edges: precision@k and recall@k. Compare methods in README table 10.3.
-
-## 9. Serving and alert store
-
-### 9.1 Replay
-
-`serving/replay.py` iterates test-period events in chronological micro-batches, calls `scorer.py`, and writes
-alerts to SQLite when `score >= threshold`. This **simulates** streaming; it is not a production service.
-
-`scorer.py` loads the checkpoint, warms memory by running train and val events with no gradients (or loads a saved
-memory snapshot), then scores new batches and updates memory after scoring.
-
-### 9.2 SQLite schema
-
-```sql
-CREATE TABLE alerts (
-  alert_id   INTEGER PRIMARY KEY,
-  edge_id    INTEGER NOT NULL,
-  ts         INTEGER NOT NULL,
-  src        INTEGER NOT NULL,
-  dst        INTEGER NOT NULL,
-  amount     REAL,
-  score      REAL NOT NULL,
-  label      INTEGER,              -- ground truth; shown only in demo/eval mode
-  run_id     TEXT NOT NULL,
-  status     TEXT DEFAULT 'new',   -- new | reviewed | confirmed | dismissed
-  created_at TEXT DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE explanations (
-  alert_id   INTEGER PRIMARY KEY REFERENCES alerts(alert_id),
-  json       TEXT NOT NULL
-);
-```
-
-### 9.3 Optional FastAPI (stretch)
-
-If added, it wraps `scorer.py` with `POST /score` and `GET /alerts`. It must not contain model logic.
-
-## 10. Dashboard (Streamlit)
-
-| Page | Content | Data source |
-|------|---------|-------------|
-| Home | Project summary, headline metrics, model comparison chart | `reports/*.json` |
-| Alert Queue | Table sorted by score; filters (score, time, account, status) | `alerts.db` |
-| Alert Detail | PyVis subgraph (edge width = attention), Plotly timeline of transactions, motif list, explanation text, status buttons | `alerts.db`, `edges.parquet` |
-| Replay Simulator | Play/pause stream, live alert counter, score distribution | `serving/replay.py` |
-| Model Comparison | PR curves, typology recall bar chart, ablation table | `reports/` |
-
-Rules: the app reads files and the database only; it never trains models or imports from `models/` or `training/`.
-Embed PyVis HTML with `streamlit.components.v1.html`. Cache data loads with `st.cache_data`. Ground-truth labels are
-shown only in "demo/evaluation mode" with a clear banner.
-
-## 11. Configuration and reproducibility
-
-- All hyperparameters live in `configs/*.yaml`. No magic numbers in code.
-- `utils/seed.py` seeds Python, NumPy, PyTorch (CPU and CUDA). Record the seed in the run folder.
-- Pin dependency versions in `requirements.txt` once the environment works. Record `torch`, `torch_geometric` and
-  CUDA versions in each run's `config.yaml`.
-- Every figure in `reports/` must be regenerable from a run folder with one command.
-
-## 12. Compute and deployment
-
-| Task | Where |
-|------|-------|
-| Development and unit tests | Laptop, CPU, tiny synthetic dataset |
-| Preprocessing and baselines | Laptop or Colab |
-| TGN training | Colab / Kaggle GPU |
-| Dashboard demo | Docker on CPU using `data/demo/` bundle |
-
-**Demo bundle** (`data/demo/`): a slice of the test period (about 50k events chosen to include several laundering
-attempts of different typologies), the checkpoint, node index, `alerts.db` with explanations. Keep it small enough
-to commit or host on cloud storage.
-
-## 13. Module dependency rules
-
-```mermaid
-flowchart BT
-    utils["utils"]
-    data["data"] --> utils
-    models["models"] --> data
-    models --> utils
-    training["training"] --> models
-    training --> data
-    evaluation["evaluation"] --> data
-    explain["explain"] --> models
-    explain --> data
-    serving["serving"] --> models
-    serving --> explain
-    serving --> data
-    app["app (Streamlit)"] -. "files / SQLite only" .-> serving
-    app -. "files only" .-> evaluation
-```
-
-- `evaluation` depends only on `predictions.parquet` and `edges.parquet`, never on model code.
-- `app` must not import `models` or `training`.
-- No circular imports. `utils` imports nothing from the project.
-
-## 14. Testing
-
-| Test | Purpose |
-|------|---------|
-| Tiny synthetic dataset (about 2k edges with planted cycle and fan-out) | Fast smoke test of the whole pipeline in under a minute |
-| Split test | Train max timestamp < val min timestamp < test min timestamp |
-| Leakage test | Perturb future edges; features and scores at time `t` must not change |
-| Memory-order test | Scores for a batch are identical whether or not later batches exist |
-| Determinism test | Same seed gives same loss on a few batches (CPU) |
-| Schema test | `predictions.parquet` has required columns and no NaN scores |
-| Motif tests | Planted cycle/fan-out detected by `motifs.py` |
-| Explanation JSON test | Validates against schema in 8.2 |
-
-Run with `pytest`. Add a test with every bug fix.
-
-## 15. Risks and mitigations
-
-| Risk | Impact | Mitigation |
-|------|--------|-----------|
-| GNNExplainer does not fit TGN memory design | RQ4 weakened | Attention + motifs are the primary method; GNNExplainer is optional |
-| TGN training too slow on free GPU | Missed milestone | HI-Small only; larger batch; fewer epochs; cache preprocessed tensors; train on Kaggle (more GPU hours) |
-| Extreme class imbalance, unstable training | Poor PR-AUC | Weighted/focal loss; monitor val PR-AUC; early stopping |
-| Pattern-to-edge matching is incomplete | Typology metrics partial | Report match rate; evaluate on matched edges only |
-| Synthetic data criticism | Validity concerns | State limitation; optionally add Elliptic check |
-| PyG / CUDA version conflicts | Lost days | Fix environment early; record versions; Colab notebook as fallback |
-| Merge conflicts, unclear ownership | Slow progress | Module owners; small PRs; file-based interfaces |
-| Scope creep | Unfinished core | Priority tiers in README; "Must" list first |
-
-## 16. Build order and acceptance criteria
-
-### v1 prototype (active)
-
-| Milestone | Deliverable | Done when |
-|---|---|---|
-| P0 | Skeleton, environment, config and tiny test data | Dependency imports and smoke checks pass |
-| P1 | Verified subset, causal splits, XGBoost and evaluation | Saved baseline predictions and measured metrics; data checks pass |
-| P2 | TGN, checkpoint and held-out scoring | Training runs and produces genuine test scores; state-order checks pass |
-| P3 | Context, basic motifs and saved alerts | Correct joins and bounded historical graphs, with honest missing-context states |
-| P4 | Streamlit queue/detail and local demo | Another member can launch the demo and inspect saved outputs |
-
-UI fixtures may be developed in parallel if labelled. Connect real outputs after P2/P3. Prototype completion does not require superior TGN performance, final comparisons or Docker.
-
-### Final research version (deferred)
-After v1: add the graph-feature baseline, static GNN, temporal ablations, multiple seeds, broader data runs, typology/explanation benchmarks and final packaging. Answer the README's deferred research questions before claiming temporal superiority or explanation faithfulness.
-
----
-
-## 17. Decision log
-
-| Decision | Choice | Reason |
-|----------|--------|--------|
-| Main temporal model | TGN | Native PyG support (memory, neighbour loader, example); TGAT is not a PyG module |
-| Framework | PyTorch Geometric | TGN components exist; large community; explain module |
-| Data store | Parquet files + SQLite | Neo4j and PostgreSQL add setup cost with no research benefit at this scale |
-| Dataset | IBM AML HI-Small | Temporal, labelled edges, typology labels enable RQ3 and RQ4 |
-| Node types | Accounts only | Public data has no devices/merchants; do not claim what cannot be demonstrated |
-| Split | Chronological 60/20/20 | Random split leaks future information |
-| Primary metric | PR-AUC | ROC-AUC is misleading at about 0.1% positives |
-| Explainability | Attention + motifs primary | Works with TGN; produces human-readable output |
-| UI | Streamlit only | One UI layer; FastAPI is stretch |
-| Streaming | Replay simulation | Honest about scope; avoids infrastructure work |
-
-## 18. Open questions (resolve and record in the decision log)
-
-1. Can GNNExplainer be applied to the frozen-memory embedding module cleanly? Time-box to a few days at M4.
-2. Best batch size and memory dimension for HI-Small on a free GPU.
-3. Window size Δ for the explanation subgraph and motif search (the dataset covers only days, so hours are likely).
-4. Exact match rate of patterns-file transactions to edges after preprocessing.
-5. Whether LI-Small is run as a generalisation check or deferred.
-
+No Docker/API/production stream/authentication, static GNN, graph-feature baseline, multi-seed runs, pattern matching, GNNExplainer or bank integrations are required for v1. No additional infrastructure dependencies were introduced. Python 3.11/3.12 and supplied CPU pins are the local target. CUDA/Colab require separate checks.

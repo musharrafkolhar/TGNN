@@ -1,0 +1,5 @@
+# CPU development baseline. Use the official PyTorch instructions for GPU wheels.
+# Full CPU pipeline, including PyG training/replay, verified on Python 3.12.4.
+-r requirements-core.txt
+torch==2.2.2
+torch-geometric==2.6.1

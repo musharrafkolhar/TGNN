@@ -1,0 +1,12 @@
+# Baseline, evaluation and saved-output dashboard only.
+numpy==1.26.4
+pandas==2.2.0
+scikit-learn==1.6.1
+xgboost==3.0.0
+pyarrow==18.1.0
+networkx==3.5
+streamlit==1.32.0
+plotly==5.18.0
+PyYAML==6.0.2
+pytest==8.4.1
+ruff==0.12.2
