@@ -1,5 +1,7 @@
-"""Launch the next-generation TGNN Fraud Intelligence Platform."""
+"""Launch the TGNN Fraud Intelligence Platform with automatic port detection and browser launch."""
 
+import os
+import socket
 import sys
 import threading
 import time
@@ -8,26 +10,52 @@ from pathlib import Path
 
 import uvicorn
 
-PORT = 8000
-HOST = "127.0.0.1"
-URL = f"http://{HOST}:{PORT}"
+
+def find_available_port(start_port: int = 8000, max_attempts: int = 20) -> int:
+    """Find a free TCP port to prevent bind errors."""
+    for port in range(start_port, start_port + max_attempts):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", port))
+                return port
+            except OSError:
+                continue
+    return start_port
 
 
-def open_browser():
-    time.sleep(1.2)
-    print(f"\nOpening TGNN Fraud Intelligence Platform at {URL} ...\n")
-    webbrowser.open(URL)
+def launch_browser(url: str):
+    """Reliably open browser on Windows using startfile or webbrowser."""
+    time.sleep(1.0)
+    print(f"\n>>> Launching browser at: {url}\n")
+    try:
+        if sys.platform == "win32":
+            os.startfile(url)
+        else:
+            webbrowser.open(url)
+    except Exception:
+        webbrowser.open(url)
 
 
 if __name__ == "__main__":
-    # Ensure current directory is on sys.path
     root_dir = Path(__file__).resolve().parent
     sys.path.insert(0, str(root_dir / "src"))
 
-    threading.Thread(target=open_browser, daemon=True).start()
-    print("=" * 70)
+    # Determine port
+    port = find_available_port(8000)
+    url = f"http://127.0.0.1:{port}"
+
+    print("=" * 72)
     print("  TGNN FRAUD INTELLIGENCE PLATFORM (ENTERPRISE AML SUITE)")
-    print(f"  Live Server running on {URL}")
-    print("  Press Ctrl+C to terminate the server.")
-    print("=" * 70)
-    uvicorn.run("app.server:app", host=HOST, port=PORT, log_level="info")
+    print(f"  Live Server: {url}")
+    print("  Status: All genuine offline runs, metrics, and alerts ready.")
+    print("=" * 72)
+
+    # Launch browser in background thread
+    threading.Thread(target=launch_browser, args=(url,), daemon=True).start()
+
+    # Start Uvicorn
+    try:
+        uvicorn.run("app.server:app", host="127.0.0.1", port=port, log_level="info")
+    except Exception as e:
+        print(f"\nServer error: {e}")
+        input("\nPress Enter to exit...")
