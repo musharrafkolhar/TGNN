@@ -1,8 +1,11 @@
 @echo off
 cd /d "%~dp0"
+echo ======================================================================
+echo   Launching Next-Level TGNN Fraud Intelligence Platform...
+echo ======================================================================
 if exist ".venv\Scripts\python.exe" (
-  ".venv\Scripts\python.exe" -m streamlit run app/Home.py
+  ".venv\Scripts\python.exe" run_dashboard.py %*
 ) else (
-  python -m streamlit run app/Home.py
+  python run_dashboard.py %*
 )
 if errorlevel 1 pause

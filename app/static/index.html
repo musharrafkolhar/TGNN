@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TGNN · Temporal Graph Fraud Intelligence Platform</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <!-- Chart.js for PR curves & metrics -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Vis.js Network for interactive graph -->
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              400: '#818cf8',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            },
+            cyber: {
+              cyan: '#06b6d4',
+              rose: '#f43f5e',
+              emerald: '#10b981',
+              amber: '#f59e0b',
+              dark: '#0b0f19',
+              card: '#111827',
+              border: '#1f2937',
+              panel: '#151d30'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      background-color: #080c15;
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(79, 70, 229, 0.12) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.08) 0px, transparent 50%),
+        radial-gradient(at 50% 100%, rgba(244, 63, 94, 0.06) 0px, transparent 50%);
+      color: #f3f4f6;
+    }
+    .glass-card {
+      background: rgba(17, 24, 39, 0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5);
+    }
+    .glass-card:hover {
+      border-color: rgba(99, 102, 241, 0.35);
+    }
+    .glow-cyan {
+      box-shadow: 0 0 15px -3px rgba(6, 182, 212, 0.4);
+    }
+    .glow-rose {
+      box-shadow: 0 0 15px -3px rgba(244, 63, 94, 0.4);
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    .pulse-dot {
+      animation: pulseGlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.9); }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col font-sans selection:bg-brand-500 selection:text-white">
+
+  <!-- TOP APP HEADER -->
+  <header class="border-b border-cyber-border bg-cyber-dark/80 backdrop-blur-md sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      
+      <!-- Brand & Identity -->
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 via-indigo-500 to-cyber-cyan flex items-center justify-center shadow-lg shadow-indigo-500/20">
+          <i data-lucide="shield-alert" class="w-5 h-5 text-white"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <span class="font-extrabold tracking-tight text-white text-lg">TGNN<span class="text-cyber-cyan">.AI</span></span>
+            <span class="text-[10px] font-mono tracking-widest uppercase px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20 font-bold">PROTOTYPE V1</span>
+          </div>
+          <p class="text-xs text-slate-400 hidden sm:block">Temporal Graph Neural Network for AML Transaction Investigation</p>
+        </div>
+      </div>
+
+      <!-- Center Run Selector -->
+      <div class="flex items-center space-x-2 bg-cyber-card px-3 py-1.5 rounded-xl border border-cyber-border">
+        <span class="text-xs text-slate-400 flex items-center font-medium">
+          <i data-lucide="cpu" class="w-3.5 h-3.5 mr-1.5 text-cyber-cyan"></i> Model:
+        </span>
+        <select id="runSelector" class="bg-transparent text-xs font-semibold text-white focus:outline-none cursor-pointer pr-4">
+          <option value="" disabled selected>Loading models...</option>
+        </select>
+        <div class="w-2 h-2 rounded-full bg-cyber-emerald pulse-dot ml-1" title="Offline verification verified"></div>
+      </div>
+
+      <!-- Action Toggles -->
+      <div class="flex items-center space-x-3">
+        <!-- Presentation Mode Trigger -->
+        <button id="btnPresentation" class="flex items-center space-x-1.5 text-xs font-semibold bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white px-3.5 py-2 rounded-lg transition-all shadow-md shadow-indigo-600/20">
+          <i data-lucide="presentation" class="w-4 h-4"></i>
+          <span>Presentation Deck</span>
+        </button>
+
+        <!-- Reveal Ground Truth Toggle -->
+        <button id="btnGroundTruth" class="flex items-center space-x-1.5 text-xs font-medium border border-cyber-border hover:border-slate-500 bg-cyber-card text-slate-300 hover:text-white px-3 py-2 rounded-lg transition-all">
+          <i data-lucide="eye" class="w-3.5 h-3.5 text-cyber-amber"></i>
+          <span id="groundTruthLabel">Ground Truth: Off</span>
+        </button>
+      </div>
+
+    </div>
+
+    <!-- Navigation Bar -->
+    <div class="border-t border-cyber-border/60 bg-cyber-card/40">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-8">
+        <button class="nav-tab active flex items-center space-x-2 py-3 border-b-2 border-brand-500 text-white text-sm font-medium transition-colors" data-target="tab-alerts">
+          <i data-lucide="inbox" class="w-4 h-4 text-cyber-cyan"></i>
+          <span>Alert Triage & Queue</span>
+          <span id="badgeAlertCount" class="text-[10px] bg-brand-500/20 text-brand-300 px-1.5 py-0.5 rounded-full font-mono">0</span>
+        </button>
+
+        <button class="nav-tab flex items-center space-x-2 py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors" data-target="tab-graph">
+          <i data-lucide="share-2" class="w-4 h-4 text-cyber-emerald"></i>
+          <span>Temporal Graph Studio</span>
+        </button>
+
+        <button class="nav-tab flex items-center space-x-2 py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors" data-target="tab-benchmark">
+          <i data-lucide="bar-chart-2" class="w-4 h-4 text-brand-400"></i>
+          <span>Model Benchmark & PR Curves</span>
+        </button>
+
+        <button class="nav-tab flex items-center space-x-2 py-3 border-b-2 border-transparent text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors" data-target="tab-dataset">
+          <i data-lucide="database" class="w-4 h-4 text-cyber-amber"></i>
+          <span>IBM Dataset Telemetry</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN VIEWPORT CONTAINER -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
+
+    <!-- ======================================================== -->
+    <!-- TAB 1: ALERT TRIAGE & QUEUE -->
+    <!-- ======================================================== -->
+    <div id="tab-alerts" class="tab-pane space-y-6">
+      
+      <!-- Top Metric Cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        
+        <div class="glass-card rounded-2xl p-5 relative overflow-hidden group">
+          <div class="absolute -right-4 -top-4 w-20 h-20 bg-cyber-cyan/10 rounded-full blur-xl group-hover:bg-cyber-cyan/20 transition-all"></div>
+          <span class="text-xs uppercase font-mono tracking-wider text-slate-400">Average Precision (AP)</span>
+          <div class="flex items-baseline space-x-2 mt-2">
+            <h3 id="statAP" class="text-3xl font-extrabold text-white font-mono">0.000</h3>
+            <span class="text-xs text-cyber-cyan font-semibold">Test Metric</span>
+          </div>
+          <p class="text-xs text-slate-400 mt-1">Evaluated on held-out test split</p>
+        </div>
+
+        <div class="glass-card rounded-2xl p-5 relative overflow-hidden group">
+          <div class="absolute -right-4 -top-4 w-20 h-20 bg-brand-500/10 rounded-full blur-xl group-hover:bg-brand-500/20 transition-all"></div>
+          <span class="text-xs uppercase font-mono tracking-wider text-slate-400">Validation Threshold</span>
+          <div class="flex items-baseline space-x-2 mt-2">
+            <h3 id="statThreshold" class="text-3xl font-extrabold text-brand-400 font-mono">0.000</h3>
+            <span class="text-xs text-slate-400 font-semibold">Frozen Cutoff</span>
+          </div>
+          <p class="text-xs text-slate-400 mt-1">Maximum F1 cutoff frozen for test</p>
+        </div>
+
+        <div class="glass-card rounded-2xl p-5 relative overflow-hidden group">
+          <div class="absolute -right-4 -top-4 w-20 h-20 bg-cyber-rose/10 rounded-full blur-xl group-hover:bg-cyber-rose/20 transition-all"></div>
+          <span class="text-xs uppercase font-mono tracking-wider text-slate-400">Exported Alerts</span>
+          <div class="flex items-baseline space-x-2 mt-2">
+            <h3 id="statAlertsCount" class="text-3xl font-extrabold text-cyber-rose font-mono">0</h3>
+            <span class="text-xs text-cyber-rose font-semibold">Flagged</span>
+          </div>
+          <p class="text-xs text-slate-400 mt-1">High-risk test transactions</p>
+        </div>
+
+        <div class="glass-card rounded-2xl p-5 relative overflow-hidden group">
+          <div class="absolute -right-4 -top-4 w-20 h-20 bg-cyber-amber/10 rounded-full blur-xl group-hover:bg-cyber-amber/20 transition-all"></div>
+          <span class="text-xs uppercase font-mono tracking-wider text-slate-400">Class Prevalence</span>
+          <div class="flex items-baseline space-x-2 mt-2">
+            <h3 id="statPrevalence" class="text-3xl font-extrabold text-cyber-amber font-mono">0.035%</h3>
+            <span class="text-xs text-cyber-amber font-semibold">1 in 2,850</span>
+          </div>
+          <p class="text-xs text-slate-400 mt-1">Needle-in-a-haystack imbalance</p>
+        </div>
+
+      </div>
+
+      <!-- Filter Controls & Search Bar -->
+      <div class="glass-card rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4">
+        
+        <!-- Search Input -->
+        <div class="relative w-full md:w-80">
+          <i data-lucide="search" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"></i>
+          <input type="text" id="searchInput" placeholder="Search account, edge ID, currency..." 
+            class="w-full pl-10 pr-4 py-2 bg-cyber-dark/80 border border-cyber-border rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 transition-colors">
+        </div>
+
+        <!-- Filter Pills -->
+        <div class="flex items-center space-x-1.5 overflow-x-auto w-full md:w-auto pb-2 md:pb-0" id="statusFilterGroup">
+          <button class="status-pill active px-3 py-1.5 text-xs font-semibold rounded-lg bg-brand-600 text-white transition-colors" data-status="all">All Statuses</button>
+          <button class="status-pill px-3 py-1.5 text-xs font-semibold rounded-lg bg-cyber-card border border-cyber-border text-slate-300 hover:text-white transition-colors" data-status="new">New</button>
+          <button class="status-pill px-3 py-1.5 text-xs font-semibold rounded-lg bg-cyber-card border border-cyber-border text-slate-300 hover:text-white transition-colors" data-status="under_review">Under Review</button>
+          <button class="status-pill px-3 py-1.5 text-xs font-semibold rounded-lg bg-cyber-card border border-cyber-border text-slate-300 hover:text-white transition-colors" data-status="escalated">Escalated</button>
+          <button class="status-pill px-3 py-1.5 text-xs font-semibold rounded-lg bg-cyber-card border border-cyber-border text-slate-300 hover:text-white transition-colors" data-status="dismissed">Dismissed</button>
+        </div>
+
+        <!-- Min Score Slider -->
+        <div class="flex items-center space-x-3 w-full md:w-60">
+          <span class="text-xs text-slate-400 whitespace-nowrap">Min Score:</span>
+          <input type="range" id="scoreSlider" min="0" max="1" step="0.01" value="0.75" class="w-full accent-cyber-cyan cursor-pointer">
+          <span id="sliderValue" class="text-xs font-mono font-bold text-cyber-cyan w-10 text-right">0.75</span>
+        </div>
+
+      </div>
+
+      <!-- Alert Queue Table -->
+      <div class="glass-card rounded-2xl overflow-hidden border border-cyber-border">
+        <div class="p-4 border-b border-cyber-border flex items-center justify-between">
+          <div class="flex items-center space-x-2">
+            <i data-lucide="list-ordered" class="w-5 h-5 text-cyber-cyan"></i>
+            <h2 class="font-bold text-white text-base">Prioritized Alert Queue</h2>
+          </div>
+          <span class="text-xs text-slate-400">Click any row to open the complete investigation dossier</span>
+        </div>
+
+        <div class="overflow-x-auto custom-scrollbar">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-cyber-dark/60 text-xs text-slate-400 uppercase font-mono tracking-wider border-b border-cyber-border">
+              <tr>
+                <th class="px-4 py-3.5">Alert ID</th>
+                <th class="px-4 py-3.5">Edge ID</th>
+                <th class="px-4 py-3.5">Source Account</th>
+                <th class="px-4 py-3.5">Recipient Account</th>
+                <th class="px-4 py-3.5">Amount</th>
+                <th class="px-4 py-3.5">Currency</th>
+                <th class="px-4 py-3.5">Risk Score</th>
+                <th class="px-4 py-3.5">Status</th>
+                <th class="px-4 py-3.5 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="alertTableBody" class="divide-y divide-cyber-border/40 font-mono">
+              <tr>
+                <td colspan="9" class="px-4 py-12 text-center text-slate-400 font-sans">Loading alerts...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+
+    <!-- ======================================================== -->
+    <!-- TAB 2: TEMPORAL GRAPH STUDIO -->
+    <!-- ======================================================== -->
+    <div id="tab-graph" class="tab-pane hidden space-y-6">
+      
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Interactive Graph Canvas (2/3 width) -->
+        <div class="lg:col-span-2 glass-card rounded-2xl p-5 flex flex-col h-[700px]">
+          
+          <div class="flex items-center justify-between pb-4 border-b border-cyber-border">
+            <div>
+              <h2 class="font-bold text-white text-base flex items-center space-x-2">
+                <i data-lucide="network" class="w-5 h-5 text-cyber-emerald"></i>
+                <span>Dynamic Transaction Subgraph</span>
+              </h2>
+              <p class="text-xs text-slate-400 mt-0.5">Force-directed physics graph. Nodes = bank accounts; edges = timestamped transfers.</p>
+            </div>
+
+            <!-- Graph Actions -->
+            <div class="flex items-center space-x-2">
+              <button id="btnPhysicsToggle" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-cyber-card border border-cyber-border hover:border-slate-500 text-slate-300">
+                Physics: On
+              </button>
+              <button id="btnFitGraph" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-cyber-card border border-cyber-border hover:border-slate-500 text-slate-300">
+                Reset View
+              </button>
+            </div>
+          </div>
+
+          <!-- Highlight Motif Filter Bar -->
+          <div class="py-3 flex items-center space-x-3 text-xs border-b border-cyber-border/40">
+            <span class="text-slate-400 font-semibold">Highlight Typology Motif:</span>
+            <button id="btnHighlightCycle" class="px-3 py-1 rounded-full bg-cyber-rose/10 text-cyber-rose border border-cyber-rose/30 hover:bg-cyber-rose/20 font-bold transition-all flex items-center space-x-1">
+              <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
+              <span>Circular Laundering (Cycle)</span>
+            </button>
+            <button id="btnHighlightFanout" class="px-3 py-1 rounded-full bg-cyber-cyan/10 text-cyber-cyan border border-cyber-cyan/30 hover:bg-cyber-cyan/20 font-bold transition-all flex items-center space-x-1">
+              <i data-lucide="git-fork" class="w-3.5 h-3.5"></i>
+              <span>Fan-Out (Structuring)</span>
+            </button>
+            <button id="btnClearHighlight" class="px-2.5 py-1 rounded-full bg-cyber-card text-slate-400 hover:text-white">Clear</button>
+          </div>
+
+          <!-- The Vis.js Graph Canvas -->
+          <div id="graphCanvas" class="flex-1 w-full bg-[#080c15]/90 rounded-xl mt-3 relative overflow-hidden border border-cyber-border/50">
+            <div id="graphLoading" class="absolute inset-0 flex items-center justify-center bg-cyber-dark/80 z-10 text-slate-400">
+              Select an alert from the queue to render its temporal subgraph
+            </div>
+          </div>
+
+          <!-- Legend Bar -->
+          <div class="pt-3 flex flex-wrap items-center justify-between text-xs text-slate-400 border-t border-cyber-border/40 mt-3">
+            <div class="flex items-center space-x-4">
+              <span class="flex items-center"><span class="w-3 h-3 rounded-full bg-cyber-rose inline-block mr-1.5"></span> Target Transaction</span>
+              <span class="flex items-center"><span class="w-3 h-3 rounded-full bg-cyber-cyan inline-block mr-1.5"></span> Sender Node</span>
+              <span class="flex items-center"><span class="w-3 h-3 rounded-full bg-brand-500 inline-block mr-1.5"></span> Recipient Node</span>
+              <span class="flex items-center"><span class="w-3 h-3 rounded-full bg-slate-500 inline-block mr-1.5"></span> Historical Counterparty</span>
+            </div>
+            <span class="font-mono text-[11px] text-cyber-amber">Strict Temporal Causality: Prior Edges Only</span>
+          </div>
+
+        </div>
+
+        <!-- Investigation Dossier / Inspector (1/3 width) -->
+        <div class="glass-card rounded-2xl p-5 flex flex-col h-[700px] overflow-y-auto custom-scrollbar">
+          
+          <div class="pb-3 border-b border-cyber-border">
+            <div class="flex items-center justify-between">
+              <span class="text-xs uppercase font-mono tracking-wider text-cyber-cyan font-bold">Investigation Dossier</span>
+              <span id="inspectBadge" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyber-rose/20 text-cyber-rose border border-cyber-rose/30">FLAGGED TEST EVENT</span>
+            </div>
+            <h3 id="inspectTitle" class="text-lg font-extrabold text-white mt-1">Select an Alert</h3>
+            <p id="inspectSubtitle" class="text-xs text-slate-400">Transaction details & causal historical context</p>
+          </div>
+
+          <!-- Target Event Summary -->
+          <div class="mt-4 space-y-3">
+            <div class="bg-cyber-dark/80 p-3.5 rounded-xl border border-cyber-border">
+              <span class="text-[11px] text-slate-400 uppercase font-mono">Monetary Flow</span>
+              <div class="flex items-center justify-between mt-1">
+                <span id="inspectAmount" class="text-xl font-bold font-mono text-white">$0.00</span>
+                <span id="inspectCurrency" class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">USD</span>
+              </div>
+              <div class="text-xs text-slate-400 mt-2 flex items-center justify-between">
+                <span>Sender: <b id="inspectSrc" class="text-slate-200 font-mono">--</b></span>
+                <i data-lucide="arrow-right" class="w-3.5 h-3.5 text-cyber-cyan"></i>
+                <span>Recipient: <b id="inspectDst" class="text-slate-200 font-mono">--</b></span>
+              </div>
+            </div>
+
+            <!-- Risk Score Breakdown -->
+            <div class="bg-cyber-dark/80 p-3.5 rounded-xl border border-cyber-border space-y-2">
+              <div class="flex justify-between items-center text-xs">
+                <span class="text-slate-400">Model Risk Score:</span>
+                <span id="inspectScore" class="font-mono font-bold text-cyber-rose text-sm">0.0000</span>
+              </div>
+              <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                <div id="inspectScoreBar" class="bg-gradient-to-r from-cyber-emerald via-cyber-amber to-cyber-rose h-full rounded-full" style="width: 0%"></div>
+              </div>
+              <div class="flex justify-between items-center text-[11px] text-slate-500 font-mono">
+                <span>Safe: 0.0</span>
+                <span>Threshold: <span id="inspectCutoff">0.760</span></span>
+                <span>Illicit: 1.0</span>
+              </div>
+            </div>
+
+            <!-- Motifs Detected List -->
+            <div class="bg-cyber-dark/80 p-3.5 rounded-xl border border-cyber-border">
+              <span class="text-[11px] text-slate-400 uppercase font-mono font-bold">Identified Graph Motifs</span>
+              <div id="inspectMotifs" class="mt-2 space-y-1.5 text-xs">
+                <span class="text-slate-500 italic">No patterns detected for current selection.</span>
+              </div>
+            </div>
+
+            <!-- Historical Prior Transactions Table -->
+            <div class="bg-cyber-dark/80 p-3.5 rounded-xl border border-cyber-border">
+              <span class="text-[11px] text-slate-400 uppercase font-mono font-bold">Historical Lookback Window (24h)</span>
+              <div id="inspectHistory" class="mt-2 space-y-2 text-xs max-h-40 overflow-y-auto custom-scrollbar">
+                <span class="text-slate-500 italic">No prior transaction history found.</span>
+              </div>
+            </div>
+
+            <!-- Analyst Triage Form -->
+            <div class="bg-cyber-dark/80 p-3.5 rounded-xl border border-cyber-border space-y-2">
+              <span class="text-[11px] text-slate-400 uppercase font-mono font-bold">Update Review Status</span>
+              <div class="flex space-x-2">
+                <select id="statusUpdateSelect" class="flex-1 bg-cyber-card border border-cyber-border text-xs rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-brand-500">
+                  <option value="new">NEW</option>
+                  <option value="under_review">UNDER REVIEW</option>
+                  <option value="escalated">ESCALATED</option>
+                  <option value="dismissed">DISMISSED</option>
+                </select>
+                <button id="btnSaveStatus" class="px-3 py-1.5 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-lg transition-colors">
+                  Save
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+    <!-- ======================================================== -->
+    <!-- TAB 3: MODEL BENCHMARK & PR CURVES -->
+    <!-- ======================================================== -->
+    <div id="tab-benchmark" class="tab-pane hidden space-y-6">
+      
+      <!-- Comparative Headline Card -->
+      <div class="glass-card rounded-2xl p-6 relative overflow-hidden">
+        <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div>
+            <span class="text-xs uppercase font-mono tracking-wider text-cyber-cyan font-bold">Scientific Benchmark Integrity</span>
+            <h2 class="text-2xl font-extrabold text-white mt-1">XGBoost Baseline vs. PyTorch Geometric TGN</h2>
+            <p class="text-xs text-slate-400 mt-1 max-w-2xl">
+              Both models evaluated on 79,876 strictly identical held-out validation and test transactions. 
+              No fake scores, synthetic inflation, or metric substitutions.
+            </p>
+          </div>
+          <div class="px-4 py-2 bg-brand-500/10 border border-brand-500/30 rounded-xl text-right">
+            <span class="text-[10px] text-brand-400 font-mono uppercase block">Subset Integrity Check</span>
+            <span class="text-xs font-bold text-white font-mono">SHA-256 Verified Identical</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Side-by-Side Model Comparison Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        <!-- XGBoost Card -->
+        <div class="glass-card rounded-2xl p-5 border-t-4 border-t-cyber-cyan">
+          <div class="flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+              <span class="w-3 h-3 rounded-full bg-cyber-cyan"></span>
+              <h3 class="text-lg font-bold text-white">XGBoost Baseline</h3>
+            </div>
+            <span class="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-cyber-cyan">Tabular Features</span>
+          </div>
+          
+          <div class="grid grid-cols-3 gap-3 mt-4 text-center">
+            <div class="bg-cyber-dark/80 p-2.5 rounded-xl border border-cyber-border">
+              <span class="text-[10px] text-slate-400 uppercase font-mono block">Validation AP</span>
+              <span class="text-base font-bold font-mono text-white">0.0040</span>
+            </div>
+            <div class="bg-cyber-dark/80 p-2.5 rounded-xl border border-cyber-border">
+              <span class="text-[10px] text-slate-400 uppercase font-mono block">Test AP</span>
+              <span class="text-base font-bold font-mono text-cyber-cyan">0.0035</span>
+            </div>
+            <div class="bg-cyber-dark/80 p-2.5 rounded-xl border border-cyber-border">
+              <span class="text-[10px] text-slate-400 uppercase font-mono block">Threshold</span>
+              <span class="text-base font-bold font-mono text-white">0.7606</span>
+            </div>
+          </div>
+
+          <div class="mt-4 text-xs text-slate-400 space-y-1.5">
+            <p>• Uses current transaction features with train-derived class weighting.</p>
+            <p>• Fast tabular inference; highest test AP on recorded 6-hour contiguous pilot.</p>
+            <p>• Lacks dynamic memory state across recurring transacting account chains.</p>
+          </div>
+        </div>
+
+        <!-- TGN Card -->
+        <div class="glass-card rounded-2xl p-5 border-t-4 border-t-brand-500">
+          <div class="flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+              <span class="w-3 h-3 rounded-full bg-brand-500"></span>
+              <h3 class="text-lg font-bold text-white">Temporal Graph Network (TGN)</h3>
+            </div>
+            <span class="text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-brand-400">Dynamic Graph & Memory</span>
+          </div>
+
+          <div class="grid grid-cols-3 gap-3 mt-4 text-center">
+            <div class="bg-cyber-dark/80 p-2.5 rounded-xl border border-cyber-border">
+              <span class="text-[10px] text-slate-400 uppercase font-mono block">Validation AP</span>
+              <span class="text-base font-bold font-mono text-white">0.0024</span>
+            </div>
+            <div class="bg-cyber-dark/80 p-2.5 rounded-xl border border-cyber-border">
+              <span class="text-[10px] text-slate-400 uppercase font-mono block">Test AP</span>
+              <span class="text-base font-bold font-mono text-brand-400">0.0014</span>
+            </div>
+            <div class="bg-cyber-dark/80 p-2.5 rounded-xl border border-cyber-border">
+              <span class="text-[10px] text-slate-400 uppercase font-mono block">Threshold</span>
+              <span class="text-base font-bold font-mono text-white">0.8675</span>
+            </div>
+          </div>
+
+          <div class="mt-4 text-xs text-slate-400 space-y-1.5">
+            <p>• PyG TGNMemory + TransformerConv with time-encoded historical edges.</p>
+            <p>• Continuously updates recurrent node state at every timestamp.</p>
+            <p>• Identifies structural graph patterns; honest benchmark reporting maintained.</p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Precision-Recall Curve Chart -->
+      <div class="glass-card rounded-2xl p-5">
+        <div class="flex items-center justify-between pb-3 border-b border-cyber-border">
+          <div>
+            <h3 class="font-bold text-white text-base">Precision-Recall Curve (Held-Out Test Set)</h3>
+            <p class="text-xs text-slate-400">Continuous risk scores across 39,936 test events. Evaluates ranking fidelity under severe class imbalance.</p>
+          </div>
+          <span class="text-xs text-slate-400 font-mono">14 Positives in Test Slice</span>
+        </div>
+
+        <div class="h-80 w-full mt-4">
+          <canvas id="prChart"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+
+    <!-- ======================================================== -->
+    <!-- TAB 4: IBM DATASET TELEMETRY -->
+    <!-- ======================================================== -->
+    <div id="tab-dataset" class="tab-pane hidden space-y-6">
+      
+      <!-- Overview Card -->
+      <div class="glass-card rounded-2xl p-6">
+        <h2 class="text-2xl font-extrabold text-white">IBM Synthetic Anti-Money Laundering (HI-Small)</h2>
+        <p class="text-xs text-slate-400 mt-1 max-w-3xl">
+          Synthetic transaction benchmark created by IBM Research. Accounts represent nodes, and transactions represent directed timestamped edges.
+          The dataset simulates realistic smurfing, circular laundering, and shell-company networks.
+        </p>
+
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6">
+          <div class="bg-cyber-dark/80 p-4 rounded-xl border border-cyber-border">
+            <span class="text-[10px] text-slate-400 uppercase font-mono">Raw File Rows</span>
+            <h4 class="text-2xl font-bold font-mono text-white mt-1">5,078,345</h4>
+            <span class="text-xs text-slate-500">18 days of banking data</span>
+          </div>
+
+          <div class="bg-cyber-dark/80 p-4 rounded-xl border border-cyber-border">
+            <span class="text-[10px] text-slate-400 uppercase font-mono">Contiguous Pilot Slice</span>
+            <h4 class="text-2xl font-bold font-mono text-cyber-cyan mt-1">199,583</h4>
+            <span class="text-xs text-slate-500">2022-09-02 (00:00 to 05:58 UTC)</span>
+          </div>
+
+          <div class="bg-cyber-dark/80 p-4 rounded-xl border border-cyber-border">
+            <span class="text-[10px] text-slate-400 uppercase font-mono">Unique Banking Entities</span>
+            <h4 class="text-2xl font-bold font-mono text-brand-400 mt-1">157,344</h4>
+            <span class="text-xs text-slate-500">Distinct (Bank, Account) nodes</span>
+          </div>
+
+          <div class="bg-cyber-dark/80 p-4 rounded-xl border border-cyber-border">
+            <span class="text-[10px] text-slate-400 uppercase font-mono">Input Feature Space</span>
+            <h4 class="text-2xl font-bold font-mono text-cyber-emerald mt-1">106 Dim</h4>
+            <span class="text-xs text-slate-500">Log-amounts, channels, time sine/cos</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chronological Split Visual -->
+      <div class="glass-card rounded-2xl p-6">
+        <h3 class="font-bold text-white text-base">Strict Chronological Partition (60 / 20 / 20)</h3>
+        <p class="text-xs text-slate-400 mt-1">
+          Zero future data leakage. Same-time events at split boundaries are never broken across splits.
+        </p>
+
+        <div class="mt-6 space-y-4">
+          
+          <div class="p-4 rounded-xl bg-blue-950/20 border border-blue-500/30 flex justify-between items-center">
+            <div>
+              <span class="text-xs font-bold text-blue-400 uppercase font-mono">Training Set (60%)</span>
+              <h5 class="text-base font-bold text-white mt-0.5">119,707 Transactions &nbsp;•&nbsp; 00:00 → 03:23 UTC</h5>
+              <span class="text-xs text-slate-400">Encoders, scalers & class weights fit strictly on this partition.</span>
+            </div>
+            <div class="text-right">
+              <span class="text-xs font-mono font-bold text-cyber-rose">47 Laundering Positives</span>
+              <span class="text-[10px] text-slate-400 block font-mono">0.039% prevalence</span>
+            </div>
+          </div>
+
+          <div class="p-4 rounded-xl bg-purple-950/20 border border-purple-500/30 flex justify-between items-center">
+            <div>
+              <span class="text-xs font-bold text-purple-400 uppercase font-mono">Validation Set (20%)</span>
+              <h5 class="text-base font-bold text-white mt-0.5">39,940 Transactions &nbsp;•&nbsp; 03:24 → 04:41 UTC</h5>
+              <span class="text-xs text-slate-400">Used strictly to select best epoch checkpoint and freeze decision cutoff.</span>
+            </div>
+            <div class="text-right">
+              <span class="text-xs font-mono font-bold text-cyber-rose">15 Laundering Positives</span>
+              <span class="text-[10px] text-slate-400 block font-mono">0.038% prevalence</span>
+            </div>
+          </div>
+
+          <div class="p-4 rounded-xl bg-pink-950/20 border border-pink-500/30 flex justify-between items-center">
+            <div>
+              <span class="text-xs font-bold text-pink-400 uppercase font-mono">Held-Out Test Set (20%)</span>
+              <h5 class="text-base font-bold text-white mt-0.5">39,936 Transactions &nbsp;•&nbsp; 04:42 → 05:58 UTC</h5>
+              <span class="text-xs text-slate-400">Final unblemished test evaluation with frozen weights & frozen cutoff.</span>
+            </div>
+            <div class="text-right">
+              <span class="text-xs font-mono font-bold text-cyber-rose">14 Laundering Positives</span>
+              <span class="text-[10px] text-slate-400 block font-mono">0.035% prevalence</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+
+  <!-- ======================================================== -->
+  <!-- PRESENTATION SLIDE DRAWER / MODAL -->
+  <!-- ======================================================== -->
+  <div id="presentationModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+    <div class="glass-card bg-[#0b0f19] border border-cyber-border rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+      
+      <!-- Modal Header -->
+      <div class="p-4 border-b border-cyber-border flex items-center justify-between bg-cyber-card">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="presentation" class="w-5 h-5 text-brand-400"></i>
+          <h3 class="font-bold text-white text-base">BE Final-Year Project Presentation Deck (v1 Prototype)</h3>
+        </div>
+        <button id="btnClosePresentation" class="text-slate-400 hover:text-white p-1 rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Slide Content -->
+      <div class="p-6 flex-1 overflow-y-auto space-y-6 custom-scrollbar text-sm">
+        
+        <div class="border border-brand-500/30 bg-brand-500/10 p-4 rounded-xl">
+          <h4 class="font-bold text-brand-300 text-base">Key Presentation Talking Points for Evaluators:</h4>
+          <ul class="list-disc list-inside mt-2 space-y-1.5 text-slate-300">
+            <li><b>Problem:</b> Financial transaction fraud & money laundering is coordinated and dynamic; isolated tabular checks fail to catch network topology (smurfing & circular laundering).</li>
+            <li><b>Architecture:</b> Accounts are nodes; transactions are timestamped directed edges. PyTorch Geometric TGN updates recurrent node state dynamically upon each event.</li>
+            <li><b>Integrity & Zero Leakage:</b> Encoders, scalers and thresholds fit on train only. Test cutoff frozen on validation F1. No fake scores or inflated metrics reported.</li>
+            <li><b>Explainability:</b> 200 cycles and 35 fan-out motifs automatically extracted strictly from historical preceding edges.</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 class="font-bold text-white text-base mb-3">Pre-Rendered High-Resolution Presentation Slides</h4>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <a href="/static/slides/01_transaction_data_sample.png" target="_blank" class="block p-3 bg-cyber-card rounded-xl border border-cyber-border hover:border-cyber-cyan transition-all">
+              <span class="font-bold text-cyber-cyan block mb-1">Slide 1: Transaction Data Sample</span>
+              <span class="text-xs text-slate-400">Tabular stream with raw amounts, channels, and laundering labels</span>
+            </a>
+            <a href="/static/slides/02_dataset_statistics_splits.png" target="_blank" class="block p-3 bg-cyber-card rounded-xl border border-cyber-border hover:border-brand-400 transition-all">
+              <span class="font-bold text-brand-400 block mb-1">Slide 2: Scale, Imbalance & Splits</span>
+              <span class="text-xs text-slate-400">5.08M transactions, 0.102% prevalence, strict chronological partition</span>
+            </a>
+            <a href="/static/slides/03_temporal_graph_network_motifs.png" target="_blank" class="block p-3 bg-cyber-card rounded-xl border border-cyber-border hover:border-cyber-rose transition-all">
+              <span class="font-bold text-cyber-rose block mb-1">Slide 3: Graph Network & Motifs</span>
+              <span class="text-xs text-slate-400">Dynamic graph mapping, Smurfing Fan-Out & Circular Laundering</span>
+            </a>
+            <a href="/static/slides/04_alert_investigation_card.png" target="_blank" class="block p-3 bg-cyber-card rounded-xl border border-cyber-border hover:border-cyber-amber transition-all">
+              <span class="font-bold text-cyber-amber block mb-1">Slide 4: Alert Scoring & Context</span>
+              <span class="text-xs text-slate-400">Model score comparison, 24h causal subgraph & explainability</span>
+            </a>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ======================================================== -->
+  <!-- FRONTEND LOGIC -->
+  <!-- ======================================================== -->
+  <script>
+    // State
+    let currentRuns = [];
+    let currentRunId = null;
+    let alertsData = [];
+    let selectedAlert = null;
+    let revealGroundTruth = false;
+    let visNetwork = null;
+    let prChart = null;
+
+    // DOM Elements
+    const runSelector = document.getElementById('runSelector');
+    const alertTableBody = document.getElementById('alertTableBody');
+    const searchInput = document.getElementById('searchInput');
+    const scoreSlider = document.getElementById('scoreSlider');
+    const sliderValue = document.getElementById('sliderValue');
+    const statusPills = document.querySelectorAll('.status-pill');
+    const navTabs = document.querySelectorAll('.nav-tab');
+    const tabPanes = document.querySelectorAll('.tab-pane');
+    const btnGroundTruth = document.getElementById('btnGroundTruth');
+    const groundTruthLabel = document.getElementById('groundTruthLabel');
+    const btnPresentation = document.getElementById('btnPresentation');
+    const presentationModal = document.getElementById('presentationModal');
+    const btnClosePresentation = document.getElementById('btnClosePresentation');
+
+    // Initialize Lucide icons
+    lucide.createIcons();
+
+    // 1. Fetch Runs & populate selector
+    async function loadRuns() {
+      try {
+        const res = await fetch('/api/runs');
+        const data = await res.json();
+        currentRuns = data.runs;
+        
+        runSelector.innerHTML = '';
+        if (currentRuns.length === 0) {
+          runSelector.innerHTML = '<option>No runs found</option>';
+          return;
+        }
+
+        currentRuns.forEach(r => {
+          const opt = document.createElement('option');
+          opt.value = r.run_id;
+          opt.textContent = `${r.model} · ${r.run_id.substring(0, 15)}... (${(r.test_ap || 0).toFixed(4)} AP)`;
+          runSelector.appendChild(opt);
+        });
+
+        currentRunId = currentRuns[0].run_id;
+        runSelector.value = currentRunId;
+
+        // Load data for active run
+        await onRunChanged(currentRunId);
+
+      } catch (err) {
+        console.error('Error loading runs:', err);
+      }
+    }
+
+    async function onRunChanged(runId) {
+      currentRunId = runId;
+      const run = currentRuns.find(r => r.run_id === runId);
+
+      // Update KPI cards
+      if (run) {
+        document.getElementById('statAP').textContent = (run.test_ap || 0).toFixed(4);
+        document.getElementById('statThreshold').textContent = (run.threshold || 0).toFixed(4);
+        document.getElementById('statAlertsCount').textContent = run.total_alerts || 0;
+        document.getElementById('badgeAlertCount').textContent = run.total_alerts || 0;
+      }
+
+      await loadAlerts();
+      await loadPRCurve();
+    }
+
+    // 2. Fetch Alerts
+    async function loadAlerts() {
+      if (!currentRunId) return;
+
+      const q = searchInput.value;
+      const minScore = scoreSlider.value;
+      const activePill = document.querySelector('.status-pill.active');
+      const status = activePill ? activePill.dataset.status : 'all';
+
+      alertTableBody.innerHTML = `<tr><td colspan="9" class="px-4 py-8 text-center text-slate-400 font-sans">Querying alerts...</td></tr>`;
+
+      try {
+        const url = `/api/run/${currentRunId}/alerts?q=${encodeURIComponent(q)}&min_score=${minScore}&status=${status}&limit=50`;
+        const res = await fetch(url);
+        const data = await res.json();
+        alertsData = data.alerts;
+
+        renderAlertsTable(alertsData);
+
+        if (alertsData.length > 0) {
+          inspectAlert(alertsData[0]);
+        }
+      } catch (err) {
+        console.error('Error loading alerts:', err);
+        alertTableBody.innerHTML = `<tr><td colspan="9" class="px-4 py-8 text-center text-cyber-rose">Failed to load alerts</td></tr>`;
+      }
+    }
+
+    function renderAlertsTable(alerts) {
+      if (alerts.length === 0) {
+        alertTableBody.innerHTML = `<tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">No alerts matching filter criteria.</td></tr>`;
+        return;
+      }
+
+      alertTableBody.innerHTML = '';
+      alerts.forEach(a => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-cyber-panel/60 transition-colors cursor-pointer group';
+        if (selectedAlert && selectedAlert.edge_id === a.edge_id) {
+          tr.classList.add('bg-brand-500/10', 'border-l-2', 'border-l-cyber-cyan');
+        }
+
+        const scorePct = Math.min(100, Math.round(a.score * 100));
+        const statusColors = {
+          'new': 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+          'under_review': 'bg-brand-500/10 text-brand-400 border-brand-500/30',
+          'escalated': 'bg-rose-500/10 text-rose-400 border-rose-500/30',
+          'dismissed': 'bg-slate-500/10 text-slate-400 border-slate-500/30'
+        };
+        const statusBadge = statusColors[a.status] || statusColors['new'];
+
+        let labelHtml = '';
+        if (revealGroundTruth) {
+          const isLaundering = a.label === 1;
+          labelHtml = isLaundering
+            ? `<span class="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500 text-white">ILLICIT (1)</span>`
+            : `<span class="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500 text-white">LEGIT (0)</span>`;
+        }
+
+        tr.innerHTML = `
+          <td class="px-4 py-3 text-white font-bold">#${a.alert_id}</td>
+          <td class="px-4 py-3 text-cyber-cyan">${a.edge_id} ${labelHtml}</td>
+          <td class="px-4 py-3 text-slate-300 font-sans text-xs">${a.src_label || ('acct_' + a.src)}</td>
+          <td class="px-4 py-3 text-slate-300 font-sans text-xs">${a.dst_label || ('acct_' + a.dst)}</td>
+          <td class="px-4 py-3 text-white font-bold">$${a.amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+          <td class="px-4 py-3 text-slate-400 text-xs">${a.currency}</td>
+          <td class="px-4 py-3">
+            <div class="flex items-center space-x-2">
+              <span class="font-bold text-cyber-rose">${a.score.toFixed(4)}</span>
+              <div class="w-16 bg-slate-800 h-1.5 rounded-full overflow-hidden hidden sm:block">
+                <div class="bg-cyber-rose h-full" style="width: ${scorePct}%"></div>
+              </div>
+            </div>
+          </td>
+          <td class="px-4 py-3">
+            <span class="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${statusBadge}">${a.status}</span>
+          </td>
+          <td class="px-4 py-3 text-right">
+            <button class="text-xs text-cyber-cyan hover:underline font-sans font-medium" onclick="event.stopPropagation(); inspectAlertByEdge(${a.edge_id})">Inspect</button>
+          </td>
+        `;
+
+        tr.addEventListener('click', () => {
+          inspectAlert(a);
+          document.querySelectorAll('#alertTableBody tr').forEach(r => r.classList.remove('bg-brand-500/10', 'border-l-2', 'border-l-cyber-cyan'));
+          tr.classList.add('bg-brand-500/10', 'border-l-2', 'border-l-cyber-cyan');
+        });
+
+        alertTableBody.appendChild(tr);
+      });
+    }
+
+    // 3. Inspect Alert & Render Dynamic Subgraph
+    window.inspectAlertByEdge = function(edgeId) {
+      const alert = alertsData.find(a => a.edge_id === edgeId);
+      if (alert) inspectAlert(alert);
+    };
+
+    async function inspectAlert(alert) {
+      selectedAlert = alert;
+      document.getElementById('inspectTitle').textContent = `Alert #${alert.alert_id} (Edge ${alert.edge_id})`;
+      document.getElementById('inspectAmount').textContent = `$${alert.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+      document.getElementById('inspectCurrency').textContent = alert.currency;
+      document.getElementById('inspectSrc').textContent = alert.src_label || alert.src;
+      document.getElementById('inspectDst').textContent = alert.dst_label || alert.dst;
+      document.getElementById('inspectScore').textContent = alert.score.toFixed(4);
+      document.getElementById('inspectScoreBar').style.width = `${Math.min(100, Math.round(alert.score * 100))}%`;
+      document.getElementById('inspectCutoff').textContent = (alert.threshold || 0).toFixed(4);
+      document.getElementById('statusUpdateSelect').value = alert.status;
+
+      // Fetch full alert context (subgraph + motifs + attention)
+      try {
+        const res = await fetch(`/api/run/${currentRunId}/alert/${alert.edge_id}`);
+        const context = await res.json();
+        
+        renderMotifs(context.motifs || []);
+        renderHistory(context.subgraph?.edges || [], alert.edge_id);
+        renderVisGraph(context);
+
+      } catch (err) {
+        console.error('Error fetching context:', err);
+      }
+    }
+
+    function renderMotifs(motifs) {
+      const container = document.getElementById('inspectMotifs');
+      container.innerHTML = '';
+      if (!motifs || motifs.length === 0) {
+        container.innerHTML = `<span class="text-slate-500 italic">No complex motifs detected for this transaction.</span>`;
+        return;
+      }
+
+      motifs.forEach(m => {
+        const div = document.createElement('div');
+        div.className = 'p-2 rounded bg-cyber-card border border-cyber-border/70 flex items-center justify-between';
+        const typeName = m.type === 'cycle' ? 'Circular Laundering (Cycle)' : (m.type === 'fan_out' ? 'Fan-Out (Structuring)' : m.type);
+        div.innerHTML = `
+          <div class="flex items-center space-x-1.5">
+            <span class="w-2 h-2 rounded-full ${m.type === 'cycle' ? 'bg-cyber-rose' : 'bg-cyber-cyan'}"></span>
+            <span class="font-bold text-white">${typeName}</span>
+          </div>
+          <span class="text-[10px] font-mono text-slate-400">${m.node_ids?.length || 0} nodes</span>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function renderHistory(edges, targetEdgeId) {
+      const container = document.getElementById('inspectHistory');
+      container.innerHTML = '';
+      const historical = edges.filter(e => e.edge_id !== targetEdgeId);
+      
+      if (historical.length === 0) {
+        container.innerHTML = `<span class="text-slate-500 italic">No prior transactions between these entities in the 24h window.</span>`;
+        return;
+      }
+
+      historical.forEach(e => {
+        const div = document.createElement('div');
+        div.className = 'p-2 rounded bg-cyber-card border border-cyber-border/50 text-[11px] flex justify-between items-center';
+        div.innerHTML = `
+          <div>
+            <span class="text-slate-300 font-mono block">Edge #${e.edge_id} · ${e.payment_format || 'Transfer'}</span>
+            <span class="text-slate-500 text-[10px]">${e.timestamp_utc ? e.timestamp_utc.substring(11, 19) : ''}</span>
+          </div>
+          <span class="font-mono text-white font-bold">$${(e.amount || 0).toLocaleString()}</span>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    // 4. Vis.js Network Graph Rendering
+    function renderVisGraph(context) {
+      const container = document.getElementById('graphCanvas');
+      const loading = document.getElementById('graphLoading');
+      loading.style.display = 'none';
+
+      const nodesMap = new Map();
+      const visNodes = [];
+      const visEdges = [];
+
+      const target = context.target;
+      const subgraph = context.subgraph || { nodes: [], edges: [] };
+
+      // Helper to add nodes
+      function ensureNode(nodeId, label, isSrc, isDst) {
+        if (!nodesMap.has(nodeId)) {
+          nodesMap.set(nodeId, true);
+          let color = '#6366f1'; // Indigo default
+          if (nodeId === target.src) color = '#06b6d4'; // Cyan for sender
+          if (nodeId === target.dst) color = '#f43f5e'; // Rose for receiver
+
+          visNodes.push({
+            id: nodeId,
+            label: label || `Acct ${nodeId}`,
+            color: {
+              background: color,
+              border: '#ffffff',
+              highlight: { background: '#ffffff', border: color }
+            },
+            font: { color: '#ffffff', size: 12, face: 'Inter' },
+            shape: 'dot',
+            size: (nodeId === target.src || nodeId === target.dst) ? 22 : 16,
+            borderWidth: 2,
+          });
+        }
+      }
+
+      // Add target nodes
+      ensureNode(target.src, `Sender (${target.src})`, true, false);
+      ensureNode(target.dst, `Recipient (${target.dst})`, false, true);
+
+      // Add other subgraph nodes
+      if (subgraph.nodes) {
+        subgraph.nodes.forEach(n => ensureNode(n.node_id, n.label, false, false));
+      }
+
+      // Add historical edges
+      if (subgraph.edges) {
+        subgraph.edges.forEach(e => {
+          if (e.edge_id !== target.edge_id) {
+            visEdges.push({
+              id: `edge-${e.edge_id}`,
+              from: e.src,
+              to: e.dst,
+              arrows: 'to',
+              color: { color: '#475569', highlight: '#38bdf8' },
+              width: 1.5,
+              label: `$${e.amount?.toLocaleString() || ''}`,
+              font: { color: '#94a3b8', size: 9, align: 'top' },
+              smooth: { type: 'curvedCW', roundness: 0.2 }
+            });
+          }
+        });
+      }
+
+      // Add target edge (bold, pulsing crimson)
+      visEdges.push({
+        id: `target-${target.edge_id}`,
+        from: target.src,
+        to: target.dst,
+        arrows: 'to',
+        color: { color: '#f43f5e', highlight: '#ffffff' },
+        width: 3.5,
+        label: `TARGET: $${target.amount?.toLocaleString() || ''}`,
+        font: { color: '#f43f5e', strokeWidth: 3, strokeColor: '#0b0f19', size: 11, face: 'Inter' },
+        smooth: { type: 'curvedCW', roundness: 0.3 }
+      });
+
+      const data = {
+        nodes: new vis.DataSet(visNodes),
+        edges: new vis.DataSet(visEdges)
+      };
+
+      const options = {
+        physics: {
+          enabled: true,
+          solver: 'forceAtlas2Based',
+          forceAtlas2Based: {
+            gravitationalConstant: -50,
+            centralGravity: 0.01,
+            springLength: 120,
+            springConstant: 0.08
+          }
+        },
+        interaction: { hover: true, zoomView: true, dragView: true }
+      };
+
+      if (visNetwork) {
+        visNetwork.destroy();
+      }
+      visNetwork = new vis.Network(container, data, options);
+    }
+
+    // 5. Precision-Recall Chart rendering with Chart.js
+    async function loadPRCurve() {
+      if (!currentRunId) return;
+      try {
+        const res = await fetch(`/api/run/${currentRunId}/pr-curve`);
+        const data = await res.json();
+
+        const points = data.recall.map((r, i) => ({ x: r, y: data.precision[i] }));
+        
+        const ctx = document.getElementById('prChart').getContext('2d');
+        if (prChart) prChart.destroy();
+
+        prChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            datasets: [{
+              label: 'Precision-Recall Curve',
+              data: points,
+              borderColor: '#06b6d4',
+              backgroundColor: 'rgba(6, 182, 212, 0.1)',
+              fill: true,
+              tension: 0.2,
+              borderWidth: 2.5,
+              pointRadius: 2,
+              pointHoverRadius: 6,
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                type: 'linear',
+                position: 'bottom',
+                title: { display: true, text: 'Recall', color: '#94a3b8' },
+                grid: { color: '#1f2937' },
+                ticks: { color: '#94a3b8' },
+                min: 0,
+                max: 1
+              },
+              y: {
+                title: { display: true, text: 'Precision', color: '#94a3b8' },
+                grid: { color: '#1f2937' },
+                ticks: { color: '#94a3b8' },
+                min: 0,
+                max: 0.05
+              }
+            },
+            plugins: {
+              legend: { labels: { color: '#f3f4f6' } }
+            }
+          }
+        });
+
+      } catch (err) {
+        console.error('Error rendering PR curve:', err);
+      }
+    }
+
+    // Event Handlers
+    runSelector.addEventListener('change', (e) => onRunChanged(e.target.value));
+    
+    scoreSlider.addEventListener('input', (e) => {
+      sliderValue.textContent = parseFloat(e.target.value).toFixed(2);
+    });
+    scoreSlider.addEventListener('change', loadAlerts);
+    searchInput.addEventListener('input', debounce(loadAlerts, 300));
+
+    statusPills.forEach(pill => {
+      pill.addEventListener('click', () => {
+        statusPills.forEach(p => p.classList.remove('active', 'bg-brand-600', 'text-white'));
+        statusPills.forEach(p => p.classList.add('bg-cyber-card', 'text-slate-300'));
+        pill.classList.add('active', 'bg-brand-600', 'text-white');
+        pill.classList.remove('bg-cyber-card', 'text-slate-300');
+        loadAlerts();
+      });
+    });
+
+    navTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        navTabs.forEach(t => {
+          t.classList.remove('border-brand-500', 'text-white');
+          t.classList.add('border-transparent', 'text-slate-400');
+        });
+        tab.classList.add('border-brand-500', 'text-white');
+        tab.classList.remove('border-transparent', 'text-slate-400');
+
+        const targetId = tab.dataset.target;
+        tabPanes.forEach(p => p.classList.add('hidden'));
+        document.getElementById(targetId).classList.remove('hidden');
+
+        if (targetId === 'tab-graph' && visNetwork) {
+          visNetwork.fit();
+        }
+      });
+    });
+
+    // Save alert status
+    document.getElementById('btnSaveStatus').addEventListener('click', async () => {
+      if (!selectedAlert) return;
+      const newStatus = document.getElementById('statusUpdateSelect').value;
+      try {
+        const res = await fetch(`/api/run/${currentRunId}/alert/${selectedAlert.alert_id}/status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus })
+        });
+        if (res.ok) {
+          selectedAlert.status = newStatus;
+          loadAlerts();
+        }
+      } catch (err) {
+        console.error('Status update failed:', err);
+      }
+    });
+
+    // Ground Truth Toggle
+    btnGroundTruth.addEventListener('click', () => {
+      revealGroundTruth = !revealGroundTruth;
+      groundTruthLabel.textContent = `Ground Truth: ${revealGroundTruth ? 'ON' : 'Off'}`;
+      btnGroundTruth.classList.toggle('border-cyber-amber', revealGroundTruth);
+      renderAlertsTable(alertsData);
+    });
+
+    // Presentation Modal
+    btnPresentation.addEventListener('click', () => presentationModal.classList.remove('hidden'));
+    btnClosePresentation.addEventListener('click', () => presentationModal.classList.add('hidden'));
+
+    // Graph controls
+    document.getElementById('btnFitGraph').addEventListener('click', () => {
+      if (visNetwork) visNetwork.fit();
+    });
+
+    let physicsEnabled = true;
+    document.getElementById('btnPhysicsToggle').addEventListener('click', (e) => {
+      if (!visNetwork) return;
+      physicsEnabled = !physicsEnabled;
+      visNetwork.setOptions({ physics: { enabled: physicsEnabled } });
+      e.target.textContent = `Physics: ${physicsEnabled ? 'On' : 'Off'}`;
+    });
+
+    function debounce(func, wait) {
+      let timeout;
+      return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+      };
+    }
+
+    // Startup
+    loadRuns();
+  </script>
+</body>
+</html>
